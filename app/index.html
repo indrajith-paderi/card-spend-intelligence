@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:; connect-src 'self' blob: data:">
+<title>Card Spend Intelligence</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <h1>Card Spend Intelligence</h1>
+    <span class="small muted" id="subtitle">Runs locally. Statements are decrypted in this browser only.</span>
+  </div>
+  <button class="btn" id="scanBtn" title="Look for new PDFs in your statement folders and import them">Scan folders</button>
+  <button class="btn ghost" id="foldersBtn">Folders</button>
+  <label class="btn ghost" title="Import individual PDF files that aren't in a folder">
+    Add PDFs<input type="file" id="pickFiles" accept="application/pdf,.pdf" multiple>
+  </label>
+  <button class="btn ghost" id="exportCsv" disabled>Export CSV</button>
+  <button class="btn ghost" id="clearData">Clear data</button>
+  <button class="btn ghost" id="themeToggle" title="Toggle theme">◐</button>
+</header>
+<nav class="tabs" id="tabs" role="tablist"></nav>
+<div class="progress" id="progress"></div>
+<div class="filters" id="filters"></div>
+<main id="main">
+  <div class="empty-state" id="intro" style="display:none">
+    <h2>Your credit cards in one place</h2>
+    <p class="ink2">Add the folder where you keep your statement PDFs below. New statements you save there show up with <b>Scan folders</b>.
+      You'll be asked for each card's PDF password once per session.</p>
+    <ul class="privacy small ink2">
+      <li>PDFs are decrypted with pdf.js inside this tab. Passwords never leave the tab and are never saved.</li>
+      <li>The extracted transactions are stored in a local SQLite database on this computer. Nothing is uploaded anywhere.</li>
+      <li>For one-off files outside your folders, use <label class="btn" style="padding:2px 8px">Add PDFs<input type="file" id="pickFiles2" accept="application/pdf,.pdf" multiple></label></li>
+    </ul>
+  </div>
+  <section class="tab" id="tab-overview"></section>
+  <section class="tab" id="tab-spending"></section>
+  <section class="tab" id="tab-merchants"></section>
+  <section class="tab" id="tab-cards"></section>
+  <section class="tab" id="tab-leakage"></section>
+  <section class="tab" id="tab-behaviour"></section>
+  <section class="tab" id="tab-savings"></section>
+  <section class="tab" id="tab-transactions"></section>
+  <section class="tab" id="tab-parser"></section>
+  <section class="tab" id="tab-folders"></section>
+</main>
+
+<dialog id="pwDialog">
+  <form method="dialog" id="pwForm">
+    <h2 id="pwTitle">Statement password</h2>
+    <p class="small ink2" id="pwInfo"></p>
+    <div class="row" id="pwCardRow">
+      <label for="pwCard" class="small ink2">Card name</label>
+      <input type="text" id="pwCard" autocomplete="off">
+    </div>
+    <div class="row">
+      <label for="pwInput" class="small ink2">PDF password</label>
+      <input type="password" id="pwInput" autocomplete="off">
+    </div>
+    <div class="error" id="pwError"></div>
+    <div class="actions">
+      <button type="button" class="btn" id="pwSkip">Skip this card</button>
+      <button type="submit" class="btn primary" id="pwOk">Unlock</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="rmDialog">
+  <h2>Remove folder</h2>
+  <p class="small ink2" id="rmInfo" style="margin-top:8px"></p>
+  <div class="actions">
+    <button type="button" class="btn" id="rmCancel">Cancel</button>
+    <button type="button" class="btn" id="rmPurge">Remove folder and delete data</button>
+    <button type="button" class="btn primary" id="rmKeep">Remove folder, keep data</button>
+  </div>
+</dialog>
+
+<script src="vendor/pdf.min.js"></script>
+<script src="vendor/chart.umd.min.js"></script>
+<script src="js/categorize.js"></script>
+<script src="js/parser.js"></script>
+<script src="js/analysis.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
