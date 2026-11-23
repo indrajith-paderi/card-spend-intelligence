@@ -287,13 +287,15 @@
 
   /* ---------- data prep ---------- */
   function allTxns() {
-    const key = memo.ver + '|' + JSON.stringify(state.overrides);
+    const natures = state.settings.natures || {};
+    Categoriser.setNatures(natures);
+    const key = memo.ver + '|' + JSON.stringify(state.overrides) + '|' + JSON.stringify(natures);
     if (memo.txKey === key) return memo.txns;
     const out = [];
     for (const s of state.statements) for (const raw of s.txns) {
       const t = Categoriser.normaliseTxn(raw);
       const c = Categoriser.categorise(t, state.overrides);
-      out.push(Object.assign({}, t, c, { card: s.card, nature: (Categoriser.CATEGORIES[c.category] || {}).nature }));
+      out.push(Object.assign({}, t, c, { card: s.card, nature: Categoriser.natureOf(c.category) }));
     }
     out.sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''));
     memo.txKey = key; memo.txns = out;
@@ -637,10 +639,10 @@
         ${calendar(spendTx)}
       </div>
       <div class="card">
-        <div class="head"><h2>Category breakdown</h2><span class="small muted">Change compares the second half of the period with the first half</span></div>
+        <div class="head"><h2>Category breakdown</h2><span class="small muted">Change the type to move a category between essential and discretionary. Change compares the second half of the period with the first half.</span></div>
         <div class="table-wrap"><table>
           <thead><tr><th>Category</th><th>Type</th><th class="r">Total</th><th class="r">Per month</th><th>Share</th><th class="r">Txns</th><th class="r">Avg ticket</th><th class="r">Change</th></tr></thead>
-          <tbody>${A.categories.map(c => `<tr><td>${esc(c.name)}</td><td><span class="tag">${c.nature}</span></td><td class="r">${inr(c.total)}</td><td class="r">${inr(c.monthlyAvg)}</td>
+          <tbody>${A.categories.map(c => `<tr><td>${esc(c.name)}</td><td><select class="nature" data-cat="${esc(c.name)}" title="Saved in the database">${['essential', 'discretionary'].map(n => `<option ${n === c.nature ? 'selected' : ''}>${n}</option>`).join('')}</select></td><td class="r">${inr(c.total)}</td><td class="r">${inr(c.monthlyAvg)}</td>
             <td class="bar-cell"><div><i class="bar" style="width:${(c.share / maxShare * 70).toFixed(1)}%"></i><span>${pct(c.share, 1)}</span></div></td>
             <td class="r">${c.count}</td><td class="r">${inr(c.avgTicket)}</td><td class="r ${c.change > 0.15 ? 'bad' : c.change < -0.15 ? 'ok' : ''}">${c.change == null ? '—' : (c.change > 0 ? '▲ ' : '▼ ') + pct(Math.abs(c.change))}</td></tr>`).join('')}</tbody>
         </table></div>
@@ -662,12 +664,50 @@
     chart('cDow', { type: 'bar', data: { labels: A.dow.map(d => d.name), datasets: [barDs('Avg spend per day', A.dow.map(d => d.perDay), seriesColor(0))] }, options: { scales: { x: {}, y: { ticks: { callback: v => inrC(v) } } } } });
     chart('cDom', { type: 'bar', data: { labels: A.dom.map(d => d.day), datasets: [barDs('Total spend', A.dom.map(d => d.total), seriesColor(0), { maxBarThickness: 14 })] }, options: { scales: { x: { ticks: { maxRotation: 0, autoSkipPadding: 6 } }, y: { ticks: { callback: v => inrC(v) } } } } });
     wireCalendar();
+    el.querySelectorAll('select.nature').forEach(sel => sel.onchange = () => {
+      const cat = sel.dataset.cat, def = (Categoriser.CATEGORIES[cat] || {}).nature;
+      state.settings.natures = Object.assign({}, state.settings.natures);
+      if (sel.value === def) delete state.settings.natures[cat]; else state.settings.natures[cat] = sel.value;
+      saveSettings();
+      render();
+    });
     if (A.timedCount) chart('cHour', { type: 'bar', _fmt: v => v + ' txns', data: { labels: A.hours.map(h => String(h.hour).padStart(2, '0')), datasets: [barDs('Transactions', A.hours.map(h => h.count), seriesColor(0), { maxBarThickness: 18 })] }, options: { scales: { x: {}, y: {} } } });
   }
 
+  const AUTO = 'Automatic';
+  function catButton(merchant, category) {
+    const edited = !!state.overrides[merchant];
+    return `<button class="catbtn${edited ? ' edited' : ''}" data-merchant="${esc(merchant)}" data-cat="${esc(category)}" title="${edited ? 'Set by you. Click to change.' : 'Click to change the category for this merchant'}">${esc(category)}${edited ? ' ✎' : ''}</button>`;
+  }
+  function wireCatButtons(root) {
+    const cats = Object.keys(Categoriser.CATEGORIES);
+    root.addEventListener('click', e => {
+      const b = e.target.closest('.catbtn');
+      if (!b) return;
+      const sel = document.createElement('select');
+      sel.style.maxWidth = '200px';
+      const merchant = b.dataset.merchant, cur = state.overrides[merchant] || b.dataset.cat;
+      for (const c of [AUTO, ...cats]) {
+        const o = document.createElement('option');
+        o.value = c; o.textContent = c === AUTO ? 'Automatic (from the rules)' : c;
+        o.selected = state.overrides[merchant] ? c === cur : c === AUTO;
+        sel.appendChild(o);
+      }
+      b.replaceWith(sel);
+      sel.focus();
+      sel.onchange = () => {
+        if (sel.value === AUTO) delete state.overrides[merchant]; else state.overrides[merchant] = sel.value;
+        saveOverrides();
+        render();
+      };
+      sel.onblur = () => { if (sel.isConnected) sel.replaceWith(b); };
+    });
+  }
+
+  let merchQuery = '';
   function viewMerchants(A) {
     const el = $('#tab-merchants');
-    const top = A.merchants.slice(0, 60);
+    const colorOf = Object.fromEntries(cardOrder().map(c => [c, cardColor(c)]));
     el.innerHTML = `
       <div class="grid g3">
         ${kpi('Unique merchants', A.merchants.length, `${A.merchantsA} "A" merchants make up 80% of spend`)}
@@ -675,14 +715,22 @@
         ${kpi('Paid with more than one card', A.multiCardMerchants.length, 'Merchants you split across cards')}
       </div>
       <div class="card">
-        <div class="head"><h2>Top merchants</h2><span class="small muted">Class A is the top 80% of spend, B the next 15%, C the rest</span></div>
-        <div class="table-wrap"><table>
-          <thead><tr><th>#</th><th>Merchant</th><th>Class</th><th>Category</th><th class="r">Total</th><th class="r">Share</th><th class="r">Cumulative</th><th class="r">Txns</th><th class="r">Avg</th><th class="r">Months</th><th>Cards</th></tr></thead>
-          <tbody>${top.map((m, i) => `<tr><td class="muted">${i + 1}</td><td>${esc(m.name)}</td><td><span class="tag ${m.abc}">${m.abc}</span></td><td class="ink2">${esc(m.category)}</td><td class="r">${inr(m.total)}</td><td class="r">${pct(m.share, 1)}</td><td class="r muted">${pct(m.cumShare)}</td><td class="r">${m.count}</td><td class="r">${inr(m.avg)}</td><td class="r">${m.months}</td><td>${m.cards.map(c => `<i class="swatch" title="${esc(c)}" style="background:${cardColor(c)}"></i>`).join(' ')}</td></tr>`).join('')}</tbody>
+        <div class="head"><h2>Merchants</h2>
+          <input type="search" id="mq" placeholder="Search merchants" value="${esc(merchQuery)}" style="min-width:220px">
+        </div>
+        <p class="small muted" style="margin:-4px 0 10px">Click a category to change it. The change applies to every transaction from that merchant, including future statements, and is saved in the database. Class A is the top 80% of spend, B the next 15%, C the rest.</p>
+        <div class="table-wrap" style="max-height:640px"><table>
+          <thead><tr><th>#</th><th>Merchant</th><th>Class</th><th>Category</th><th class="r">Total</th><th class="r">Share</th><th class="r">Txns</th><th class="r">Avg</th><th class="r">Months</th><th>Cards</th></tr></thead>
+          <tbody>${A.merchants.map((m, i) => `<tr data-name="${esc(m.name.toLowerCase())}"><td class="muted">${i + 1}</td><td>${esc(m.name)}</td><td><span class="tag ${m.abc}">${m.abc}</span></td><td>${catButton(m.name, m.category)}</td><td class="r">${inr(m.total)}</td><td class="r">${pct(m.share, 1)}</td><td class="r">${m.count}</td><td class="r">${inr(m.avg)}</td><td class="r">${m.months}</td><td>${m.cards.map(c => `<i class="swatch" title="${esc(c)}" style="background:${colorOf[c]}"></i>`).join(' ')}</td></tr>`).join('')}</tbody>
         </table></div>
-        <p class="note">Merchant names are normalised (for example, every SWIGGY* variant is counted as Swiggy, and Instamart separately). You can fix a category on the Transactions tab and it applies to that merchant everywhere.</p>
+        <p class="note">Merchant names are cleaned up, so every SWIGGY* variant counts as Swiggy, with Instamart kept separate.</p>
       </div>`;
+    wireCatButtons(el.querySelector('tbody'));
+    const filterRows = () => { const q = merchQuery.toLowerCase(); el.querySelectorAll('tbody tr').forEach(r => { r.style.display = !q || r.dataset.name.includes(q) ? '' : 'none'; }); };
+    $('#mq').oninput = e => { merchQuery = e.target.value; filterRows(); };
+    filterRows();
   }
+
 
   function viewCards(A) {
     const el = $('#tab-cards');
@@ -959,11 +1007,11 @@
             <select id="ts"><option value="date-desc">Newest first</option><option value="date-asc">Oldest first</option><option value="amount-desc">Largest first</option><option value="amount-asc">Smallest first</option></select>
           </div>
         </div>
-        <p class="small muted" style="margin-bottom:8px">${list.length} transactions · net ${inr(tot)}${list.length > shown.length ? ` · showing ${shown.length}` : ''}. Change a category and it applies to <b>every</b> transaction from that merchant.</p>
+        <p class="small muted" style="margin-bottom:8px">${list.length} transactions · net ${inr(tot)}${list.length > shown.length ? ` · showing ${shown.length}` : ''}. To change a category, use the Merchants tab.</p>
         <div class="table-wrap" style="max-height:640px"><table>
           <thead><tr><th>Date</th><th>Description</th><th>Merchant</th><th>Category</th><th>Card</th><th class="r">Amount</th></tr></thead>
           <tbody>${shown.map(t => `<tr><td class="num">${dateLabel(t.date)}${t.time ? `<div class="small muted">${t.time}</div>` : ''}</td><td class="small">${esc(t.description)}</td><td>${esc(t.merchant)}</td>
-            <td><button class="catbtn" data-merchant="${esc(t.merchant)}" data-cat="${esc(t.category)}" title="Change category">${esc(t.category)}</button>${t.overridden ? ' <span class="tag" title="Edited by you">edited</span>' : ''}</td>
+            <td><span class="tag">${esc(t.category)}</span></td>
             <td><i class="swatch" style="background:${colorOf[t.card]}" title="${esc(t.card)}"></i></td>
             <td class="r ${t.type === 'credit' ? 'ok' : ''}">${t.type === 'credit' ? '+' : ''}${fmtINR(t.amount, { decimals: true })}</td></tr>`).join('')}</tbody>
         </table></div>
@@ -974,17 +1022,7 @@
     let deb; $('#tq').oninput = e => { clearTimeout(deb); deb = setTimeout(() => { txnQuery = e.target.value; txnLimit = 300; viewTransactions(filtered()); const i = $('#tq'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }, 200); };
     $('#tc').onchange = e => { txnCat = e.target.value; viewTransactions(filtered()); };
     $('#ts').onchange = e => { txnSort = e.target.value; viewTransactions(filtered()); };
-    el.querySelector('tbody').onclick = e => {
-      const b = e.target.closest('.catbtn');
-      if (!b) return;
-      const sel = document.createElement('select');
-      sel.style.maxWidth = '190px';
-      for (const c of cats) { const o = document.createElement('option'); o.textContent = c; o.selected = c === b.dataset.cat; sel.appendChild(o); }
-      b.replaceWith(sel);
-      sel.focus();
-      sel.onchange = () => { state.overrides[b.dataset.merchant] = sel.value; saveOverrides(); render(); };
-      sel.onblur = () => { if (sel.isConnected && sel.value === b.dataset.cat) sel.replaceWith(b); };
-    };
+
   }
 
   const KEEP_WORDS = new Set('date dates transaction transactions description details amount amounts total due minimum payment statement credit debit limit available cash balance opening closing previous purchases reward rewards points cr dr rs inr reference ref no merchant category domestic international emi interest finance charges charge fee fees gst igst cgst sgst tax card number name page of time pi upi'.split(' '));

@@ -130,5 +130,9 @@
     return Object.keys(fix).length ? Object.assign({}, t, fix) : t;
   }
 
-  window.Categoriser = { CATEGORIES, categorise, normaliseMerchant, normaliseTxn };
+  let natureOverrides = {};
+  function setNatures(map) { natureOverrides = map || {}; }
+  function natureOf(cat) { return natureOverrides[cat] || (CATEGORIES[cat] || {}).nature; }
+
+  window.Categoriser = { CATEGORIES, categorise, normaliseMerchant, normaliseTxn, setNatures, natureOf };
 })();
