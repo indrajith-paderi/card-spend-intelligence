@@ -14,7 +14,7 @@ All screenshots use made up demo data.
 
 **Overview.** Total and monthly spend split by card, the categories that eat most of your money, and a short list of findings like late fees, interest, duplicate charges or spending that keeps creeping up.
 
-**Spending.** Every category with its share, average ticket size and how it changed over the period. Also spend by weekday, by day of the month (useful for spotting the post-salary splurge) and by hour, if your bank prints transaction times.
+**Spending.** A calendar of daily spending for the last year, then every category with its share, average ticket size and how it changed over the period. Also spend by weekday, by day of the month (useful for spotting the post-salary splurge) and by hour, if your bank prints transaction times.
 
 ![Spending](docs/screenshots/spending.png)
 
@@ -67,7 +67,7 @@ You need Python 3.8 or newer. There is nothing to install with pip and no build 
      SBI SimplyClick/
    ```
 
-4. Open the **Folders** tab, paste the path to `Statements` and click **Add folder**. On Windows you can right click the folder in File Explorer and choose *Copy as path*. On Linux and macOS a path like `~/Statements` works.
+4. Open **Folders** in the sidebar, paste the path to `Statements` and click **Add folder**. On Windows you can right click the folder in File Explorer and choose *Copy as path*. On Linux and macOS a path like `~/Statements` works.
 5. Click **Import new statements**. You'll be asked for each card's PDF password once. Other files from the same card reuse it for the rest of the session.
 
 ![Folders](docs/screenshots/folders.png)
