@@ -24,15 +24,15 @@ All screenshots use made up demo data.
 
 ![Cards](docs/screenshots/cards.png)
 
-**Leakage and risk.** Interest, late fees, annual fees, GST on those fees, forex markup and fuel surcharge, each shown as what you paid and what it costs you per year. Below that, recurring payments and subscriptions, possible duplicate charges and transactions that look unusual for their category.
+**Fees and subscriptions.** Interest, late fees, annual fees, GST on those fees, forex markup and fuel surcharge, each shown as what you paid and what it costs you per year. Below that, recurring payments and subscriptions, possible duplicate charges and transactions that look unusual for their category.
 
-![Leakage and risk](docs/screenshots/leakage.png)
+![Fees and subscriptions](docs/screenshots/leakage.png)
 
-**Behaviour.** A few simple signals: how much goes to food delivery, how often you make small purchases, weekend and late night spending, whether spending is rising, and which categories grew the most.
+**Habits.** A few simple signals: how much goes to food delivery, how often you make small purchases, weekend and late night spending, whether spending is rising, and which categories grew the most.
 
-![Behaviour](docs/screenshots/behaviour.png)
+![Habits](docs/screenshots/behaviour.png)
 
-**Savings and wealth.** Pick how much you'd cut from each discretionary category and it shows the monthly saving and what that would grow to if invested. Add your income to see what share of it goes on cards. There's also a 12 month plan based on what it found.
+**Savings.** Pick how much you'd cut from each discretionary category and it shows the monthly saving and what that would grow to if invested. Add your income to see what share of it goes on cards. There's also a 12 month plan based on what it found.
 
 ![Savings](docs/screenshots/savings.png)
 
@@ -115,11 +115,13 @@ Categories are plain regex rules in `app/js/categorize.js`, tuned for Indian mer
 ```
 app/
   index.html          the page
+  favicon.svg         app icon
   serve.py            local server, SQLite storage and folder scanning
   js/parser.js        PDF unlocking and transaction extraction
   js/categorize.js    merchant clean up and category rules
   js/analysis.js      all the numbers
   js/app.js           dashboard UI
+  js/icons.js         the icon set
   css/styles.css      styles, light and dark
   vendor/             pdf.js 3.11.174 and Chart.js 4.4.1
 docs/screenshots/     images used in this README
