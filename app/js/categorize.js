@@ -121,5 +121,14 @@
     return { merchant, category: 'Other' };
   }
 
-  window.Categoriser = { CATEGORIES, categorise, normaliseMerchant };
+  const PAID_RE = /PAYMENT RECEIVED|RECEIVED[\s,.-]*THANK YOU|THANK YOU FOR (YOUR )?PAYMENT|PAYMENT[\s,.-]*THANK YOU/;
+  function normaliseTxn(t) {
+    const up = (t.description + ' ' + (t.extra || '')).toUpperCase();
+    const fix = {};
+    if (t.type === 'debit' && PAID_RE.test(up)) fix.type = 'credit';
+    if (t.time === '00:00') fix.time = null;
+    return Object.keys(fix).length ? Object.assign({}, t, fix) : t;
+  }
+
+  window.Categoriser = { CATEGORIES, categorise, normaliseMerchant, normaliseTxn };
 })();
