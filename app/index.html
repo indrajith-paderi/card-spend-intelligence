@@ -5,22 +5,26 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:; connect-src 'self' blob: data:">
 <title>Card Spend Intelligence</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
 <header class="top">
   <div class="brand">
-    <h1>Card Spend Intelligence</h1>
-    <span class="small muted" id="subtitle">Runs locally. Statements are decrypted in this browser only.</span>
+    <img src="favicon.svg" alt="" width="34" height="34">
+    <div>
+      <h1>Card Spend Intelligence</h1>
+      <span class="small muted" id="subtitle">Runs locally. Statements are decrypted in this browser only.</span>
+    </div>
   </div>
-  <button class="btn" id="scanBtn" title="Look for new PDFs in your statement folders and import them">Scan folders</button>
-  <button class="btn ghost" id="foldersBtn">Folders</button>
+  <button class="btn" id="scanBtn" title="Look for new PDFs in your statement folders and import them"><i data-icon="scan"></i>Scan folders</button>
+  <button class="btn ghost" id="foldersBtn"><i data-icon="folder"></i>Folders</button>
   <label class="btn ghost" title="Import individual PDF files that aren't in a folder">
-    Add PDFs<input type="file" id="pickFiles" accept="application/pdf,.pdf" multiple>
+    <i data-icon="filePlus"></i>Add PDFs<input type="file" id="pickFiles" accept="application/pdf,.pdf" multiple>
   </label>
-  <button class="btn ghost" id="exportCsv" disabled>Export CSV</button>
-  <button class="btn ghost" id="clearData">Clear data</button>
-  <button class="btn ghost" id="themeToggle" title="Toggle theme">◐</button>
+  <button class="btn ghost" id="exportCsv" disabled><i data-icon="download"></i>Export CSV</button>
+  <button class="btn ghost" id="clearData"><i data-icon="trash"></i>Clear data</button>
+  <button class="btn ghost" id="themeToggle" title="Switch between light and dark" aria-label="Switch between light and dark"><i data-icon="moon" class="if-light"></i><i data-icon="sun" class="if-dark"></i></button>
 </header>
 <nav class="tabs" id="tabs" role="tablist"></nav>
 <div class="progress" id="progress"></div>
@@ -47,10 +51,11 @@
   <section class="tab" id="tab-parser"></section>
   <section class="tab" id="tab-folders"></section>
 </main>
+<footer class="foot">© 2026 Indrajith P</footer>
 
 <dialog id="pwDialog">
   <form method="dialog" id="pwForm">
-    <h2 id="pwTitle">Statement password</h2>
+    <h2 id="pwTitle" class="with-ico"><i data-icon="lock"></i>Statement password</h2>
     <p class="small ink2" id="pwInfo"></p>
     <div class="row" id="pwCardRow">
       <label for="pwCard" class="small ink2">Card name</label>
@@ -80,6 +85,7 @@
 
 <script src="vendor/pdf.min.js"></script>
 <script src="vendor/chart.umd.min.js"></script>
+<script src="js/icons.js"></script>
 <script src="js/categorize.js"></script>
 <script src="js/parser.js"></script>
 <script src="js/analysis.js"></script>
