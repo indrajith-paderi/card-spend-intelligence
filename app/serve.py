@@ -136,13 +136,21 @@ def folder_json(row):
     return d
 
 
+def api_raw(con, q, _b):
+    r = con.execute("SELECT raw_lines, line_flags FROM statements WHERE id = ?", (q.get("id"),)).fetchone()
+    if not r:
+        raise ApiError(404, "Statement not found.")
+    return {"rawLines": json.loads(r["raw_lines"] or "[]"), "lineFlags": json.loads(r["line_flags"] or "[]")}
+
+
 def api_data(con, _q, _b):
     statements = {}
-    for r in con.execute("SELECT * FROM statements ORDER BY card, file_name"):
+    cols = "id, folder_id, rel_path, card, file_name, size, pages, meta, parsed_at, (COALESCE(length(raw_lines), 0) > 2) AS has_raw"
+    for r in con.execute(f"SELECT {cols} FROM statements ORDER BY card, file_name"):
         statements[r["id"]] = {
             "id": r["id"], "folderId": r["folder_id"], "relPath": r["rel_path"], "card": r["card"],
             "fileName": r["file_name"], "size": r["size"], "pages": r["pages"], "meta": json.loads(r["meta"]),
-            "rawLines": json.loads(r["raw_lines"] or "[]"), "lineFlags": json.loads(r["line_flags"] or "[]"),
+            "hasRaw": bool(r["has_raw"]),
             "parsedAt": r["parsed_at"], "txns": [],
         }
     for t in con.execute("SELECT * FROM transactions ORDER BY date, time"):
@@ -271,6 +279,7 @@ def api_clear(con, q, _b):
 ROUTES = {
     ("GET", "/api/data"): api_data,
     ("GET", "/api/scan"): api_scan,
+    ("GET", "/api/raw"): api_raw,
     ("GET", "/api/file"): api_file,
     ("POST", "/api/folders"): api_add_folder,
     ("PATCH", "/api/folders"): api_update_folder,
