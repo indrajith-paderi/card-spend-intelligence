@@ -80,6 +80,7 @@ def db():
     con = sqlite3.connect(DB_PATH, timeout=10)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")
+    con.execute("PRAGMA secure_delete = ON")
     return con
 
 
@@ -257,9 +258,13 @@ def api_put_kv(con, q, b):
     return {"ok": True}
 
 
-def api_clear(con, _q, _b):
+def api_clear(con, q, _b):
     n = con.execute("DELETE FROM statements").rowcount
     con.execute("DELETE FROM kv")
+    if q.get("folders") == "1":
+        con.execute("DELETE FROM folders")
+    con.commit()
+    con.execute("VACUUM")
     return {"ok": True, "statementsRemoved": n}
 
 

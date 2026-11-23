@@ -93,7 +93,7 @@ This was the main reason to build it instead of uploading statements to some web
 * PDFs are decrypted with pdf.js inside your browser tab. The password goes from the dialog straight to pdf.js and is dropped once the file is read.
 * The local server only listens on `127.0.0.1`, so other devices on your network can't reach it. It rejects requests coming from other websites and will only read PDFs inside folders you added.
 * The page has a Content Security Policy that blocks it from talking to anything except the local server. pdf.js and Chart.js are bundled in `app/vendor`, so no CDN is involved either.
-* Transactions are stored in `data/cards.db`. That file is not encrypted, so it's as safe as your user account and disk. **Clear data** empties it.
+* Transactions are stored in `data/cards.db`. That file is not encrypted, so it's as safe as your user account and disk. **Clear data** then **Delete everything** wipes it in one go, including the list of folders, and rewrites the file so the deleted data can't be read back from it.
 * `.gitignore` keeps PDFs, CSV exports, the database and your statement folders out of git, in case you fork this and keep your statements next to it.
 
 ## Options
