@@ -3,6 +3,11 @@
 *.csv
 *.xlsx
 *.xls
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.avi
 statements/
 
 /*/
