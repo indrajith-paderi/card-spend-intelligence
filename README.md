@@ -49,11 +49,13 @@ There's a dark mode too.
 You need Python 3.8 or newer. There is nothing to install with pip and no build step.
 
 1. Download or clone this repo.
-2. On Windows, double click `Start Dashboard.bat`. On macOS or Linux, run:
+2. On Windows, double click `Start Dashboard.bat`. On Linux or macOS, open a terminal in the project folder and run:
 
    ```
-   python3 app/serve.py
+   ./start-dashboard.sh
    ```
+
+   If it says permission denied, run `chmod +x start-dashboard.sh` once, or start it with `sh start-dashboard.sh`. You can also skip the script and run `python3 app/serve.py`.
 
    Your browser opens at `http://127.0.0.1:8765`.
 3. Keep your statements in one folder, with one sub-folder per card. The sub-folder name becomes the card name.
@@ -65,7 +67,7 @@ You need Python 3.8 or newer. There is nothing to install with pip and no build 
      SBI SimplyClick/
    ```
 
-4. Open the **Folders** tab, paste the path to `Statements` and click **Add folder**. On Windows you can right click the folder in File Explorer and choose *Copy as path*.
+4. Open the **Folders** tab, paste the path to `Statements` and click **Add folder**. On Windows you can right click the folder in File Explorer and choose *Copy as path*. On Linux and macOS a path like `~/Statements` works.
 5. Click **Import new statements**. You'll be asked for each card's PDF password once. Other files from the same card reuse it for the rest of the session.
 
 ![Folders](docs/screenshots/folders.png)
@@ -102,6 +104,8 @@ python app/serve.py --db D:\Finance\cards.db
 python app/serve.py --no-browser
 ```
 
+The Linux launcher passes these through, so `./start-dashboard.sh --db ~/finance/cards.db` works too.
+
 The first runs on a different port, the second keeps the database somewhere else and the third starts the server without opening a browser.
 
 Categories are plain regex rules in `app/js/categorize.js`, tuned for Indian merchants. Adding your own is usually one line.
@@ -120,6 +124,7 @@ app/
   vendor/             pdf.js 3.11.174 and Chart.js 4.4.1
 docs/screenshots/     images used in this README
 Start Dashboard.bat   Windows launcher
+start-dashboard.sh    Linux and macOS launcher
 ```
 
 ## Known limitations
