@@ -83,6 +83,16 @@
   </div>
 </dialog>
 
+<dialog id="clearDialog">
+  <h2>Clear data</h2>
+  <p class="small ink2" style="margin-top:8px">This deletes the imported statements, transactions, category edits and settings from the database on this computer. Your PDF files are never touched.</p>
+  <div class="actions">
+    <button type="button" class="btn" id="clearCancel">Cancel</button>
+    <button type="button" class="btn" id="clearKeep">Delete data, keep folders</button>
+    <button type="button" class="btn danger" id="clearAll">Delete everything</button>
+  </div>
+</dialog>
+
 <script src="vendor/pdf.min.js"></script>
 <script src="vendor/chart.umd.min.js"></script>
 <script src="js/icons.js"></script>

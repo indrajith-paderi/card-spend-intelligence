@@ -184,10 +184,21 @@
     importItems(items);
   }));
 
-  $('#clearData').addEventListener('click', async () => {
-    if (!confirm('Delete all imported statements, category edits and settings from the database?\nYour folders stay registered, and the PDFs on disk are not touched.')) return;
-    try { await api('DELETE', 'all'); await reload(); state.pending = await api('GET', 'scan'); updateScanButton(); render(); } catch (e) { showError(e); }
-  });
+  $('#clearData').addEventListener('click', () => $('#clearDialog').showModal());
+  $('#clearCancel').onclick = () => $('#clearDialog').close();
+  async function wipe(everything) {
+    $('#clearDialog').close();
+    try {
+      await api('DELETE', everything ? 'all?folders=1' : 'all');
+      sessionPasswords.clear();
+      if (everything) { store.del('tab'); state.tab = 'folders'; }
+      await reload(); state.pending = await api('GET', 'scan'); updateScanButton(); render();
+      setProgress(everything ? 'Everything was deleted.' : 'Imported data was deleted. Your folders are still listed.');
+      setTimeout(() => setProgress(''), 4000);
+    } catch (e) { showError(e); }
+  }
+  $('#clearKeep').onclick = () => wipe(false);
+  $('#clearAll').onclick = () => wipe(true);
 
   /* ---------- folders view ---------- */
   function viewFolders() {
