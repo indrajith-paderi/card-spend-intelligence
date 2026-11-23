@@ -176,7 +176,7 @@
 
   const DATE_ANY_RE = /(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})|(\d{1,2})[\s\-]([A-Za-z]{3,4})[\s\-,]+(\d{2,4})/g;
 
-  const META_AMOUNT_RE = /(?<![\d.,])(₹\s?|Rs\.?\s?|INR\s?)?(\d{1,3}(?:,\d{2,3})+(?:\.\d{2})?|\d+\.\d{2}|\d+)(?![\d,]|\.\d)/g;
+  const META_AMOUNT_RE = /(?<![\w.,])(₹\s?|Rs\.?\s?|INR\s?|C(?=\d)|`(?=\d))?(\d{1,3}(?:,\d{2,3})+(?:\.\d{2})?|\d+\.\d{2}|\d+)(?![\d,]|\.\d)/g;
 
   function lineAmounts(line) {
     return [...line.text.matchAll(META_AMOUNT_RE)].filter(m => m[1] || /[.,]/.test(m[2])).map(m => {
@@ -223,7 +223,7 @@
         if (firstLetters === -1 || valPos < firstLetters) return right[0].value;
       }
       // following lines: value centred under the label
-      for (let j = i + 1; j < Math.min(lines.length, i + 4); j++) {
+      for (let j = i + 1; j < Math.min(lines.length, i + 7); j++) {
         if (lines[j].page !== L.page) break;
         const ownsValue = v => {
           let best = null, bd = Infinity;
