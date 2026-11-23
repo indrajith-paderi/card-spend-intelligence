@@ -746,7 +746,7 @@
     chart('cUtil', {
       type: 'line', _fmt: v => pct(v),
       data: { labels: labels.map(d => dateLabel(d)), datasets: rows.map(c => lineDs(c.card, labels.map(d => { const u = c.util.find(x => x.statementDate === d); return u && u.ratio != null ? u.ratio : null; }), cardColor(c.card), { pointRadius: 3, pointBorderColor: css('--surface'), pointBorderWidth: 1.5, spanGaps: true })) },
-      options: { scales: { x: {}, y: { min: 0, ticks: { callback: v => pct(v) } } } },
+      options: { scales: { x: {}, y: { min: 0, ticks: { callback: v => { const p = Math.round(v * 1000) / 10; return (Number.isInteger(p) ? p : p.toFixed(1)) + '%'; } } } } },
     });
   }
 
