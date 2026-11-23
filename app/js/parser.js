@@ -176,10 +176,12 @@
 
   const DATE_ANY_RE = /(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})|(\d{1,2})[\s\-]([A-Za-z]{3,4})[\s\-,]+(\d{2,4})/g;
 
+  const META_AMOUNT_RE = /(?<![\d.,])(₹\s?|Rs\.?\s?|INR\s?)?(\d{1,3}(?:,\d{2,3})+(?:\.\d{2})?|\d+\.\d{2}|\d+)(?![\d,]|\.\d)/g;
+
   function lineAmounts(line) {
-    return [...line.text.matchAll(AMOUNT_RE)].map(m => {
+    return [...line.text.matchAll(META_AMOUNT_RE)].filter(m => m[1] || /[.,]/.test(m[2])).map(m => {
       const x = posToX(line, m.index), end = posToX(line, m.index + m[0].length - 1);
-      return { value: toNumber(m[0]), x, end, cx: (x + end) / 2 };
+      return { value: toNumber(m[2]), x, end, cx: (x + end) / 2 };
     });
   }
 
@@ -223,7 +225,12 @@
       // following lines: value centred under the label
       for (let j = i + 1; j < Math.min(lines.length, i + 4); j++) {
         if (lines[j].page !== L.page) break;
-        const cands = getter(lines[j]).map(v => ({ ...v, d: Math.abs(v.cx - lab.cx) })).filter(v => v.d < 120).sort((a, b) => a.d - b.d);
+        const ownsValue = v => {
+          let best = null, bd = Infinity;
+          for (const it of L.items) { const d = Math.abs(it.x + it.w / 2 - v.cx); if (d < bd) { bd = d; best = it; } }
+          return !best || (best.x <= lab.end + 4 && best.x + best.w >= lab.x - 4);
+        };
+        const cands = getter(lines[j]).map(v => ({ ...v, d: Math.abs(v.cx - lab.cx) })).filter(v => v.d < 120 && ownsValue(v)).sort((a, b) => a.d - b.d);
         if (cands.length) return cands[0].value;
       }
     }
