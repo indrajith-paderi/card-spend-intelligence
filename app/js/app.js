@@ -60,7 +60,9 @@
     state.settings = Object.assign(DEFAULT_SETTINGS(), d.settings || {});
     state.folders = d.folders;
     state.dbPath = d.dbPath;
+    memo.ver++;
   }
+  const memo = { ver: 0 };
 
   /* ---------- theme ---------- */
   const savedTheme = store.get('theme', null);
@@ -170,7 +172,6 @@
     $('#scanBtn').classList.toggle('primary', n > 0);
   }
   $('#scanBtn').addEventListener('click', () => { if (state.folders.length) scan({ import: true }); else { state.tab = 'folders'; render(); } });
-  $('#foldersBtn').addEventListener('click', () => { state.tab = 'folders'; store.set('tab', 'folders'); render(); });
 
   ['#pickFiles', '#pickFiles2'].forEach(id => $(id).addEventListener('change', e => {
     const files = [...e.target.files].filter(f => /\.pdf$/i.test(f.name));
@@ -286,23 +287,30 @@
 
   /* ---------- data prep ---------- */
   function allTxns() {
+    const key = memo.ver + '|' + JSON.stringify(state.overrides);
+    if (memo.txKey === key) return memo.txns;
     const out = [];
     for (const s of state.statements) for (const raw of s.txns) {
       const t = Categoriser.normaliseTxn(raw);
       const c = Categoriser.categorise(t, state.overrides);
       out.push(Object.assign({}, t, c, { card: s.card, nature: (Categoriser.CATEGORIES[c.category] || {}).nature }));
     }
-    return out.sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''));
+    out.sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''));
+    memo.txKey = key; memo.txns = out;
+    return out;
   }
   function cardOrder() { return [...new Set(state.statements.map(s => s.card))].sort(); }
   function cardColor(card) { return seriesColor(cardOrder().indexOf(card)); }
 
   function filtered() {
     const txns = allTxns();
+    const key = memo.txKey + '|' + JSON.stringify(state.filter);
+    if (memo.fKey === key) return memo.F;
     const f = state.filter;
     const okCard = c => !f.cards || f.cards.includes(c);
     const okDate = d => (!f.from || d.slice(0, 7) >= f.from) && (!f.to || d.slice(0, 7) <= f.to);
-    return {
+    memo.fKey = key;
+    return memo.F = {
       txns: txns.filter(t => okCard(t.card) && okDate(t.date)),
       statements: state.statements.filter(s => okCard(s.card)).map(s => Object.assign({}, s, {
         txns: s.txns.map(Categoriser.normaliseTxn).map(t => Object.assign({}, t, Categoriser.categorise(t, state.overrides))),
@@ -313,12 +321,17 @@
 
   /* ---------- tabs & filters ---------- */
   const TABS = [['overview', 'Overview'], ['spending', 'Spending'], ['merchants', 'Merchants'], ['cards', 'Cards'], ['leakage', 'Fees & subscriptions'], ['behaviour', 'Habits'], ['savings', 'Savings'], ['transactions', 'Transactions'], ['parser', 'Parser check'], ['folders', 'Folders']];
+  const GROUPS = [['Analysis', ['overview', 'spending', 'merchants', 'cards', 'leakage', 'behaviour', 'savings']], ['Data', ['transactions', 'parser', 'folders']]];
   function renderTabs(hasData, tab) {
     const nav = $('#tabs');
-    const tabs = hasData ? TABS : TABS.filter(t => t[0] === 'folders');
-    nav.innerHTML = tabs.map(([k, l]) => `<button role="tab" data-tab="${k}" aria-selected="${tab === k}">${Icon(k)}${l}</button>`).join('');
-    nav.querySelectorAll('button').forEach(b => b.onclick = () => { state.tab = b.dataset.tab; store.set('tab', state.tab); render(); });
+    const label = Object.fromEntries(TABS);
+    nav.innerHTML = GROUPS.map(([g, keys]) => {
+      const ks = hasData ? keys : keys.filter(k => k === 'folders');
+      return ks.length ? `<div class="group">${g}</div>` + ks.map(k => `<button data-tab="${k}" aria-selected="${tab === k}"${tab === k ? ' aria-current="page"' : ''}>${Icon(k)}${label[k]}</button>`).join('') : '';
+    }).join('');
+    nav.querySelectorAll('button').forEach(b => b.onclick = () => { state.tab = b.dataset.tab; store.set('tab', state.tab); render(); window.scrollTo(0, 0); });
     document.querySelectorAll('section.tab').forEach(s => s.classList.toggle('active', s.id === 'tab-' + tab));
+    $('#pageTitle').textContent = hasData ? label[tab] : 'Card Spend Intelligence';
   }
 
   function renderFilters(all) {
@@ -330,7 +343,7 @@
     const opt = (m, sel) => `<option value="${m}" ${sel === m ? 'selected' : ''}>${monthLabel(m)}</option>`;
     el.innerHTML = `
       ${cards.map(c => `<label class="chip"><input type="checkbox" data-card="${esc(c)}" ${!f.cards || f.cards.includes(c) ? 'checked' : ''}><span class="swatch" style="background:${cardColor(c)}"></span>${esc(c)}</label>`).join('')}
-      <span class="muted">|</span>
+      <span class="sep"></span>
       <label class="small ink2">From <select id="fFrom"><option value="">Start</option>${months.map(m => opt(m, f.from)).join('')}</select></label>
       <label class="small ink2">To <select id="fTo"><option value="">Latest</option>${months.map(m => opt(m, f.to)).join('')}</select></label>
       <select id="fPreset"><option value="">Quick range…</option><option value="3">Last 3 months</option><option value="6">Last 6 months</option><option value="12">Last 12 months</option><option value="all">All time</option></select>`;
@@ -349,41 +362,183 @@
   }
 
   /* ---------- charts ---------- */
+  const tipEl = document.getElementById('tip');
+  function showTip(html, x, y) {
+    tipEl.innerHTML = html;
+    tipEl.classList.add('on');
+    const w = tipEl.offsetWidth, h = tipEl.offsetHeight;
+    let left = x + 14, top = y + 14;
+    if (left + w > innerWidth - 8) left = x - w - 14;
+    if (top + h > innerHeight - 8) top = y - h - 14;
+    tipEl.style.transform = `translate(${Math.max(8, left)}px, ${Math.max(8, top)}px)`;
+  }
+  function hideTip() { tipEl.classList.remove('on'); }
+  const tipRow = (color, value, name) => `<div class="r"><i style="background:${color}"></i><b>${value}</b><span>${esc(name)}</span></div>`;
+
+  function externalTip(fmt, axisKey, footer) {
+    return ({ chart: c, tooltip }) => {
+      if (!tooltip.opacity || !tooltip.dataPoints || !tooltip.dataPoints.length) { hideTip(); return; }
+      let pts = tooltip.dataPoints.filter(p => p.raw != null);
+      if (pts.length > 1) pts = pts.filter(p => p.raw !== 0);
+      if (!pts.length) { hideTip(); return; }
+      const title = (tooltip.title && tooltip.title[0]) || '';
+      let html = `<div class="t">${esc(title)}</div>` + pts.slice().reverse().map(p => tipRow(p.dataset._color || p.dataset.borderColor, fmt(p.parsed[axisKey], p), p.dataset.label || '')).join('');
+      if (footer) html += `<div class="f">${footer(pts)}</div>`;
+      const r = c.canvas.getBoundingClientRect();
+      showTip(html, r.left + tooltip.caretX, r.top + tooltip.caretY);
+    };
+  }
+
+  const crosshair = {
+    id: 'crosshair',
+    afterDatasetsDraw(c) {
+      if (c.config.type !== 'line') return;
+      const a = c.tooltip && c.tooltip.getActiveElements();
+      if (!a || !a.length) return;
+      const x = Math.round(a[0].element.x) + 0.5, { top, bottom } = c.chartArea, ctx = c.ctx;
+      ctx.save(); ctx.strokeStyle = css('--axis'); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.stroke(); ctx.restore();
+    },
+  };
+  const valueLabels = {
+    id: 'valueLabels',
+    afterDatasetsDraw(c, _args, o) {
+      if (!o || !o.fmt) return;
+      const ctx = c.ctx, horiz = c.options.indexAxis === 'y';
+      ctx.save();
+      ctx.font = '600 11.5px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = css('--ink-2');
+      c.getDatasetMeta(0).data.forEach((el, i) => {
+        const v = c.data.datasets[0].data[i];
+        if (!v || (o.only && !o.only(i))) return;
+        if (horiz) { ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(o.fmt(v), el.x + 6, el.y); }
+        else { ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText(o.fmt(v), el.x, el.y - 5); }
+      });
+      ctx.restore();
+    },
+  };
+  Chart.register(crosshair, valueLabels);
+
+  const merge1 = (a, b) => { const o = Object.assign({}, a); for (const k in b) o[k] = b[k] && typeof b[k] === 'object' && !Array.isArray(b[k]) && a[k] && typeof a[k] === 'object' ? Object.assign({}, a[k], b[k]) : b[k]; return o; };
+
   function chart(id, config) {
     if (state.charts[id]) { state.charts[id].destroy(); delete state.charts[id]; }
     const el = document.getElementById(id);
     if (!el) return;
-    const ink2 = css('--ink-2'), muted = css('--muted'), grid = css('--grid'), axis = css('--axis'), surface = css('--surface');
+    const muted = css('--muted'), grid = css('--grid'), axis = css('--axis');
     Chart.defaults.font.family = 'system-ui, -apple-system, "Segoe UI", sans-serif';
-    Chart.defaults.font.size = 12;
-    Chart.defaults.color = ink2;
-    const base = {
-      responsive: true, maintainAspectRatio: false, animation: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { display: false, labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true, pointStyle: 'rectRounded', color: ink2 } },
-        tooltip: {
-          backgroundColor: surface, titleColor: css('--ink'), bodyColor: ink2, borderColor: css('--border'), borderWidth: 1, padding: 10,
-          boxWidth: 8, boxHeight: 8, usePointStyle: true,
-          callbacks: { label: ctx => ` ${ctx.dataset.label ? ctx.dataset.label + ': ' : ''}${config._fmt ? config._fmt(ctx.parsed[config._axis || 'y']) : inr(ctx.parsed[config._axis || 'y'])}` },
-        },
-      },
-      scales: {},
-    };
-    const scaleBase = { grid: { color: grid, drawTicks: false }, border: { color: axis }, ticks: { color: muted, padding: 6 } };
+    Chart.defaults.font.size = 11.5;
+    Chart.defaults.color = muted;
+    const axisKey = config._axis || 'y';
+    const fmt = config._fmt || (v => inr(v));
     const opts = config.options || {};
     const scales = {};
-    for (const k of Object.keys(opts.scales || { x: {}, y: {} })) scales[k] = Object.assign({}, scaleBase, (opts.scales || {})[k] || {});
-    if (scales.x && !(opts.scales && opts.scales.x && opts.scales.x.grid)) scales.x.grid = { display: false };
-    const optTip = (opts.plugins || {}).tooltip || {};
-    const tooltip = Object.assign({}, base.plugins.tooltip, optTip, { callbacks: Object.assign({}, base.plugins.tooltip.callbacks, optTip.callbacks || {}) });
-    const merged = Object.assign({}, base, opts, { scales, plugins: Object.assign({}, base.plugins, opts.plugins || {}, { tooltip }) });
-    if (opts.plugins && opts.plugins.legend) merged.plugins.legend = Object.assign({}, base.plugins.legend, opts.plugins.legend, { labels: Object.assign({}, base.plugins.legend.labels, (opts.plugins.legend.labels || {})) });
+    for (const k of Object.keys(opts.scales || { x: {}, y: {} })) {
+      const isValue = k === axisKey;
+      const base = {
+        grid: isValue ? { color: grid, drawTicks: false, lineWidth: 1 } : { display: false },
+        border: { display: !isValue, color: axis },
+        ticks: { color: muted, padding: 8, maxRotation: 0, autoSkipPadding: 14 },
+      };
+      scales[k] = merge1(base, (opts.scales || {})[k] || {});
+    }
+    const merged = Object.assign({ responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false } }, opts, {
+      scales,
+      plugins: Object.assign({ legend: { display: false } }, opts.plugins || {}, { tooltip: { enabled: false, external: externalTip(fmt, axisKey, config._footer) } }),
+    });
     state.charts[id] = new Chart(el, { type: config.type, data: config.data, options: merged });
+    el.onmouseleave = hideTip;
   }
-  const barDs = (label, data, color, extra) => Object.assign({ label, data, backgroundColor: color, borderColor: css('--surface'), borderWidth: { top: 0, bottom: 0, left: 0, right: 0 }, borderRadius: 4, borderSkipped: 'start', maxBarThickness: 36, categoryPercentage: 0.8, barPercentage: 0.9 }, extra || {});
+  const barDs = (label, data, color, extra) => Object.assign({
+    label, data, _color: color, backgroundColor: color, hoverBackgroundColor: color + 'cc', borderColor: css('--surface'), borderWidth: 0,
+    borderRadius: 4, borderSkipped: 'start', maxBarThickness: 24, categoryPercentage: 0.72, barPercentage: 0.92,
+  }, extra || {});
+  function stacked(datasets) {
+    const n = datasets.length ? datasets[0].data.length : 0;
+    const top = Array.from({ length: n }, (_, i) => { for (let d = datasets.length - 1; d >= 0; d--) if (datasets[d].data[i] > 0) return d; return -1; });
+    datasets.forEach((ds, d) => {
+      ds.stack = 's';
+      ds.borderWidth = ctx => top[ctx.dataIndex] === d ? 0 : { top: 2 };
+      ds.borderRadius = ctx => top[ctx.dataIndex] === d ? { topLeft: 4, topRight: 4 } : 0;
+    });
+    return datasets;
+  }
+  const lineDs = (label, data, color, extra) => Object.assign({
+    label, data, _color: color, borderColor: color, backgroundColor: color, borderWidth: 2, pointRadius: 0, pointHoverRadius: 5,
+    pointHoverBorderWidth: 2, pointHoverBorderColor: css('--surface'), borderCapStyle: 'round', borderJoinStyle: 'round', tension: 0,
+  }, extra || {});
 
-  function legendHtml(items) { return `<div class="legend">${items.map(([l, c]) => `<span><i class="swatch" style="background:${c}"></i>${esc(l)}</span>`).join('')}</div>`; }
+  function legendHtml(items, kind) { return `<div class="legend">${items.map(([l, c]) => `<span><i class="${kind === 'line' ? 'line' : 'swatch'}" style="background:${c}"></i>${esc(l)}</span>`).join('')}</div>`; }
+
+  function spark(values) {
+    const w = 84, h = 34, n = values.length;
+    if (n < 2) return '';
+    const max = Math.max(...values), min = Math.min(0, ...values);
+    const x = i => 2 + (i / (n - 1)) * (w - 6), y = v => h - 3 - ((v - min) / (max - min || 1)) * (h - 8);
+    const d = values.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join('');
+    return `<svg class="spark" viewBox="0 0 ${w} ${h}" aria-hidden="true"><path d="${d}L${x(n - 1).toFixed(1)} ${h}L${x(0).toFixed(1)} ${h}Z" fill="var(--accent)" opacity=".08"/><path d="${d}" fill="none" stroke="var(--muted)" stroke-opacity=".6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${x(n - 1).toFixed(1)}" cy="${y(values[n - 1]).toFixed(1)}" r="4" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/></svg>`;
+  }
+
+  function kpi(label, value, sub, o) {
+    o = o || {};
+    let d = '';
+    if (o.delta != null && isFinite(o.delta)) {
+      const up = o.delta > 0, flat = Math.abs(o.delta) < 0.005;
+      const cls = flat ? '' : (up === !!o.upIsGood ? 'good' : 'bad');
+      d = `<span class="delta ${cls}">${flat ? '' : up ? '▲ ' : '▼ '}${pct(Math.abs(o.delta), 1)}<span style="font-weight:400;color:var(--muted)">&nbsp;${o.deltaLabel || ''}</span></span>`;
+    }
+    return `<div class="card kpi${o.hero ? ' hero' : ''}"><div class="label">${label}</div><div class="row"><div><div class="value">${value}</div>${d}</div>${o.spark ? spark(o.spark) : ''}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`;
+  }
+
+  function barList(rows, color) {
+    const max = Math.max(...rows.map(r => r.value), 1);
+    return `<div class="bars">${rows.map(r => `<div class="b"><span class="n" title="${esc(r.name)}">${esc(r.name)}</span><span class="v">${inr(r.value)}${r.note ? `<small>${r.note}</small>` : ''}</span><div class="track"><div class="fill" style="width:${(r.value / max * 100).toFixed(1)}%;background:${r.color || color || 'var(--s1)'}"></div></div></div>`).join('')}</div>`;
+  }
+
+  function calendar(txns) {
+    if (!txns.length) return '';
+    const day = 86400000;
+    const last = new Date(txns[txns.length - 1].date + 'T00:00:00Z');
+    const start = new Date(last.getTime() - 364 * day);
+    start.setUTCDate(start.getUTCDate() - start.getUTCDay());
+    const totals = new Map();
+    for (const t of txns) if (t.date >= start.toISOString().slice(0, 10)) totals.set(t.date, (totals.get(t.date) || 0) + t.amount);
+    const vals = [...totals.values()].sort((a, b) => a - b);
+    const q = p => vals.length ? vals[Math.min(vals.length - 1, Math.floor(p * vals.length))] : 0;
+    const cuts = [q(0.2), q(0.4), q(0.6), q(0.8)];
+    const level = v => !v ? 0 : 1 + cuts.filter(c => v > c).length;
+    const cell = 12, gap = 3, left = 28, topPad = 18;
+    const weeks = Math.ceil(((last - start) / day + 1) / 7);
+    let rects = '', months = '';
+    let lastMonth = -1;
+    for (let w = 0; w < weeks; w++) {
+      for (let d = 0; d < 7; d++) {
+        const dt = new Date(start.getTime() + (w * 7 + d) * day);
+        if (dt > last) break;
+        const key = dt.toISOString().slice(0, 10), v = totals.get(key) || 0, lv = level(v);
+        rects += `<rect x="${left + w * (cell + gap)}" y="${topPad + d * (cell + gap)}" width="${cell}" height="${cell}" rx="2" fill="${lv ? `var(--q${lv})` : 'var(--surface-2)'}" data-d="${key}" data-v="${v}"/>`;
+        if (d === 0 && dt.getUTCMonth() !== lastMonth && dt.getUTCDate() <= 7) {
+          lastMonth = dt.getUTCMonth();
+          months += `<text x="${left + w * (cell + gap)}" y="11">${dt.toLocaleString('en-IN', { month: 'short', timeZone: 'UTC' })}</text>`;
+        }
+      }
+    }
+    const days = ['Mon', 'Wed', 'Fri'].map((n, i) => `<text x="0" y="${topPad + (1 + i * 2) * (cell + gap) + 10}">${n}</text>`).join('');
+    const W = left + weeks * (cell + gap), H = topPad + 7 * (cell + gap);
+    return `<div class="cal-wrap"><svg class="cal" id="calSvg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily card spend over the last 12 months">${months}${days}${rects}</svg></div>
+      <div class="cal-legend">Less ${[0, 1, 2, 3, 4, 5].map(l => `<i style="background:${l ? `var(--q${l})` : 'var(--surface-2)'}"></i>`).join('')} More</div>`;
+  }
+  function wireCalendar() {
+    const svg = document.getElementById('calSvg');
+    if (!svg) return;
+    svg.addEventListener('pointermove', e => {
+      const r = e.target.closest('rect');
+      if (!r) { hideTip(); return; }
+      const v = +r.dataset.v;
+      showTip(`<div class="t">${dateLabel(r.dataset.d)}</div><div class="r"><i style="background:var(--q4)"></i><b>${inr(v)}</b><span>${v ? 'spent' : 'no purchases'}</span></div>`, e.clientX, e.clientY);
+    });
+    svg.addEventListener('pointerleave', hideTip);
+  }
 
   /* ---------- insight generation ---------- */
   function insights(A) {
@@ -420,63 +575,78 @@
     const el = $('#tab-overview');
     const cards = A.cards;
     const ins = insights(A);
-    const topCats = A.categories.slice(0, 10);
+    const totals = A.monthly.map(r => r.total);
+    const avg3 = arr => arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0;
+    const last3 = avg3(totals.slice(-3)), prev3 = avg3(totals.slice(-6, -3));
+    const ess = A.essential, dis = A.discretionary, essDis = ess + dis || 1;
+    const topCats = A.categories.slice(0, 8);
+    const topMerch = A.merchants.slice(0, 6);
     el.innerHTML = `
       <div class="grid g4">
-        ${kpi('Total card spend', inr(A.totalSpend), `${A.nMonths} months · ${A.txnCount} purchases`)}
-        ${kpi('Average per month', inr(A.avgMonthly), `${A.perMonthTxns.toFixed(0)} purchases/month · median ticket ${inr(A.medianTicket)}`)}
-        ${kpi('Fees, interest & taxes', inr(A.totalFees), A.totalFees ? `${inr(A.totalFees * 12 / A.nMonths)} a year at this rate` : 'No avoidable charges found')}
-        ${kpi('Refunds & cashback', inr(A.totalRefunds + A.totalCashback), `Cashback ${inr(A.totalCashback)} · refunds ${inr(A.totalRefunds)}`)}
+        ${kpi('Total card spend', inr(A.totalSpend), `${A.nMonths} months · ${A.txnCount} purchases`, { hero: true, spark: totals })}
+        ${kpi('Average per month', inr(A.avgMonthly), `Last 3 months ${inr(last3)} a month`, { delta: prev3 ? (last3 - prev3) / prev3 : null, deltaLabel: 'vs the 3 before', upIsGood: false })}
+        ${kpi('Fees, interest & taxes', inr(A.totalFees), A.totalFees ? `${inr(A.totalFees * 12 / A.nMonths)} a year at this rate` : 'No avoidable charges found', { spark: A.monthly.map(r => r.fees) })}
+        ${kpi('Refunds & cashback', inr(A.totalRefunds + A.totalCashback), `Cashback ${inr(A.totalCashback)} · refunds ${inr(A.totalRefunds)}`, { spark: A.monthly.map(r => r.refunds) })}
       </div>
-      <div class="grid g2">
+      <div class="grid g21">
         <div class="card">
           <div class="head"><h2>Monthly spend by card</h2>${cards.length > 1 ? legendHtml(cards.map(c => [c, cardColor(c)])) : ''}</div>
-          <div class="chart-box"><canvas id="cMonthly"></canvas></div>
+          <div class="chart-box tall"><canvas id="cMonthly"></canvas></div>
           <p class="note">Purchases only. Bill payments, refunds and fees are left out.</p>
         </div>
         <div class="card">
-          <div class="head"><h2>Where the money goes</h2><span class="small muted">${A.paretoCats} categor${A.paretoCats === 1 ? 'y makes' : 'ies make'} up 80% of spend</span></div>
-          <div class="chart-box"><canvas id="cCats"></canvas></div>
+          <div class="head"><h2>Where the money goes</h2><span class="sub">${A.paretoCats} categor${A.paretoCats === 1 ? 'y makes' : 'ies make'} up 80%</span></div>
+          ${barList(topCats.map(c => ({ name: c.name, value: c.total, note: pct(c.share) })))}
         </div>
       </div>
-      <div class="card">
-        <div class="head"><h2>What stands out</h2><span class="small muted">From the statements selected above</span></div>
-        <ul class="insights">${ins.map(i => `<li>${badge(i.sev)}<div>${i.html}</div></li>`).join('')}</ul>
-      </div>
-      <div class="grid g3">
-        <div class="card kpi"><div class="label">Essential vs discretionary</div><div class="value">${pct(A.discretionary / (A.totalSpend || 1))}</div><div class="sub">discretionary (${inr(A.discretionary / A.nMonths)}/mo) · essential ${inr(A.essential / A.nMonths)}/mo</div></div>
-        <div class="card kpi"><div class="label">Where most of it goes</div><div class="value">${A.merchantsA}</div><div class="sub">merchants take 80% of spend, out of ${A.merchants.length} in total</div></div>
-        <div class="card kpi"><div class="label">Bill payments made</div><div class="value">${inr(A.totalPayments)}</div><div class="sub">Paying your card bill is not counted as spending</div></div>
+      <div class="grid g21">
+        <div class="card">
+          <div class="head"><h2>What stands out</h2><span class="sub">From the statements selected above</span></div>
+          <ul class="insights">${ins.map(i => `<li>${badge(i.sev)}<div>${i.html}</div></li>`).join('')}</ul>
+        </div>
+        <div>
+          <div class="card">
+            <div class="head"><h2>Needs and wants</h2><span class="sub">${inr(A.totalPayments)} paid towards card bills</span></div>
+            <div class="seg" role="img" aria-label="Essential ${pct(ess / essDis)}, discretionary ${pct(dis / essDis)}">
+              ${ess ? `<i style="flex:${ess};background:${seriesColor(0)}">${ess / essDis > 0.12 ? pct(ess / essDis) : ''}</i>` : ''}
+              ${dis ? `<i style="flex:${dis};background:${seriesColor(1)}">${dis / essDis > 0.12 ? pct(dis / essDis) : ''}</i>` : ''}
+            </div>
+            ${legendHtml([[`Essential, ${inr(ess / A.nMonths)} a month`, seriesColor(0)], [`Discretionary, ${inr(dis / A.nMonths)} a month`, seriesColor(1)]])}
+          </div>
+          <div class="card">
+            <div class="head"><h2>Top merchants</h2><span class="sub">${A.merchantsA} of ${A.merchants.length} take 80% of spend</span></div>
+            ${barList(topMerch.map(m => ({ name: m.name, value: m.total })), seriesColor(2))}
+          </div>
+        </div>
       </div>`;
     chart('cMonthly', {
       type: 'bar',
-      data: { labels: A.months.map(monthLabel), datasets: cards.map(c => barDs(c, A.monthly.map(r => r.byCard[c] || 0), cardColor(c), { stack: 's', borderWidth: { top: 2 } })) },
-      options: { scales: { x: { stacked: true }, y: { stacked: true, ticks: { callback: v => inrC(v) } } }, plugins: { tooltip: { callbacks: { footer: items => 'Total: ' + inr(items.reduce((s, i) => s + i.parsed.y, 0)) } } } },
-    });
-    chart('cCats', {
-      type: 'bar', _axis: 'x',
-      data: { labels: topCats.map(c => c.name), datasets: [barDs('Spend', topCats.map(c => c.total), seriesColor(0), { maxBarThickness: 18 })] },
-      options: { indexAxis: 'y', interaction: { mode: 'nearest', axis: 'y', intersect: false }, scales: { x: { ticks: { callback: v => inrC(v) }, grid: { color: css('--grid') } }, y: { grid: { display: false } } },
-        plugins: { tooltip: { callbacks: { afterLabel: ctx => ` ${pct(topCats[ctx.dataIndex].share, 1)} of spend · ${topCats[ctx.dataIndex].count} txns` } } } },
+      _footer: pts => 'Total ' + inr(pts.reduce((s, p) => s + p.parsed.y, 0)),
+      data: { labels: A.months.map(monthLabel), datasets: stacked(cards.map(c => barDs(c, A.monthly.map(r => r.byCard[c] || 0), cardColor(c)))) },
+      options: { scales: { x: { stacked: true }, y: { stacked: true, ticks: { callback: v => inrC(v) } } } },
     });
   }
-  const kpi = (label, value, sub) => `<div class="card kpi"><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${sub}</div></div>`;
 
-  function viewSpending(A) {
+  function viewSpending(A, F) {
     const el = $('#tab-spending');
     const maxShare = Math.max(...A.categories.map(c => c.share), 0.0001);
+    const spendTx = F.txns.filter(isSpend);
     el.innerHTML = `
+      <div class="card">
+        <div class="head"><h2>Daily spending</h2><span class="sub">The last 12 months in the selection. Darker days cost more.</span></div>
+        ${calendar(spendTx)}
+      </div>
       <div class="card">
         <div class="head"><h2>Category breakdown</h2><span class="small muted">Change compares the second half of the period with the first half</span></div>
         <div class="table-wrap"><table>
           <thead><tr><th>Category</th><th>Type</th><th class="r">Total</th><th class="r">Per month</th><th>Share</th><th class="r">Txns</th><th class="r">Avg ticket</th><th class="r">Change</th></tr></thead>
           <tbody>${A.categories.map(c => `<tr><td>${esc(c.name)}</td><td><span class="tag">${c.nature}</span></td><td class="r">${inr(c.total)}</td><td class="r">${inr(c.monthlyAvg)}</td>
-            <td class="bar-cell"><div class="bar" style="width:${(c.share / maxShare * 100).toFixed(1)}%"></div><span class="small muted">${pct(c.share, 1)}</span></td>
+            <td class="bar-cell"><div><i class="bar" style="width:${(c.share / maxShare * 70).toFixed(1)}%"></i><span>${pct(c.share, 1)}</span></div></td>
             <td class="r">${c.count}</td><td class="r">${inr(c.avgTicket)}</td><td class="r ${c.change > 0.15 ? 'bad' : c.change < -0.15 ? 'ok' : ''}">${c.change == null ? '—' : (c.change > 0 ? '▲ ' : '▼ ') + pct(Math.abs(c.change))}</td></tr>`).join('')}</tbody>
         </table></div>
       </div>
       <div class="card">
-        <div class="head"><h2>Monthly trend: top categories</h2>${legendHtml(A.categories.slice(0, 6).map((c, i) => [c.name, seriesColor(i)]))}</div>
+        <div class="head"><h2>Monthly trend of the top categories</h2>${legendHtml(A.categories.slice(0, 6).map((c, i) => [c.name, seriesColor(i)]), 'line')}</div>
         <div class="chart-box"><canvas id="cCatTrend"></canvas></div>
       </div>
       <div class="grid g2">
@@ -486,11 +656,12 @@
       ${A.timedCount ? `<div class="card"><div class="head"><h2>Spend by hour of day</h2><span class="small muted">${A.timedCount} transactions have a timestamp · ${pct(A.behaviour.lateNightShare)} between 11pm and 5am</span></div><div class="chart-box short"><canvas id="cHour"></canvas></div></div>` : ''}`;
     chart('cCatTrend', {
       type: 'line',
-      data: { labels: A.months.map(monthLabel), datasets: A.categories.slice(0, 6).map((c, i) => ({ label: c.name, data: c.byMonth, borderColor: seriesColor(i), backgroundColor: seriesColor(i), borderWidth: 2, pointRadius: 0, pointHoverRadius: 5, pointHoverBorderWidth: 2, pointHoverBorderColor: css('--surface'), tension: 0 })) },
+      data: { labels: A.months.map(monthLabel), datasets: A.categories.slice(0, 6).map((c, i) => lineDs(c.name, c.byMonth, seriesColor(i))) },
       options: { scales: { x: {}, y: { ticks: { callback: v => inrC(v) } } } },
     });
     chart('cDow', { type: 'bar', data: { labels: A.dow.map(d => d.name), datasets: [barDs('Avg spend per day', A.dow.map(d => d.perDay), seriesColor(0))] }, options: { scales: { x: {}, y: { ticks: { callback: v => inrC(v) } } } } });
     chart('cDom', { type: 'bar', data: { labels: A.dom.map(d => d.day), datasets: [barDs('Total spend', A.dom.map(d => d.total), seriesColor(0), { maxBarThickness: 14 })] }, options: { scales: { x: { ticks: { maxRotation: 0, autoSkipPadding: 6 } }, y: { ticks: { callback: v => inrC(v) } } } } });
+    wireCalendar();
     if (A.timedCount) chart('cHour', { type: 'bar', _fmt: v => v + ' txns', data: { labels: A.hours.map(h => String(h.hour).padStart(2, '0')), datasets: [barDs('Transactions', A.hours.map(h => h.count), seriesColor(0), { maxBarThickness: 18 })] }, options: { scales: { x: {}, y: {} } } });
   }
 
@@ -516,7 +687,23 @@
   function viewCards(A) {
     const el = $('#tab-cards');
     const rows = A.cardStats;
+    const utilColor = u => u == null ? 'var(--axis)' : u > 0.5 ? 'var(--critical)' : u > 0.3 ? 'var(--warning)' : 'var(--good-mark)';
     el.innerHTML = `
+      <div class="grid ${rows.length >= 4 ? 'g4' : rows.length === 3 ? 'g3' : 'g2'}">
+        ${rows.map(c => `<div class="card cardtile" style="--c:${cardColor(c.card)}">
+          <div class="nm">${esc(c.card)}</div>
+          <div class="small muted">${c.statements} statements · ${pct(c.share)} of spend</div>
+          <dl>
+            <dt>Spent</dt><dd>${inr(c.spend)}</dd>
+            <dt>Cashback and points</dt><dd>${inr(c.cashback + c.points * c.pointValue)}</dd>
+            <dt>Fees and interest</dt><dd class="${c.otherFees + c.late + c.interest ? 'bad' : ''}">${inr(c.otherFees + c.late + c.interest)}</dd>
+            <dt>Net benefit</dt><dd class="${c.netBenefit >= 0 ? 'ok' : 'bad'}">${inr(c.netBenefit)}</dd>
+            <dt>Latest bill</dt><dd>${inr(c.latest?.totalDue)}<div class="small muted" style="font-weight:400">${c.latest?.dueDate ? 'due ' + dateLabel(c.latest.dueDate) : ''}</div></dd>
+          </dl>
+          <div class="small ink2" style="margin-top:12px;display:flex;justify-content:space-between"><span>Peak use of limit</span><span>${c.maxUtil == null ? 'limit not found' : pct(c.maxUtil)}</span></div>
+          <div class="meter"><i style="width:${c.maxUtil == null ? 0 : Math.min(100, c.maxUtil * 100).toFixed(1)}%;background:${utilColor(c.maxUtil)}"></i></div>
+        </div>`).join('')}
+      </div>
       <div class="card">
         <div class="head"><h2>Card comparison</h2><span class="small muted">Net benefit = cashback + points × point value − fees − interest</span></div>
         <div class="table-wrap"><table>
@@ -530,7 +717,7 @@
       </div>
       <div class="grid g2">
         <div class="card">
-          <div class="head"><h2>Credit utilization per statement</h2>${rows.length > 1 ? legendHtml(rows.map(c => [c.card, cardColor(c.card)])) : ''}</div>
+          <div class="head"><h2>Credit utilization per statement</h2>${rows.length > 1 ? legendHtml(rows.map(c => [c.card, cardColor(c.card)]), 'line') : ''}</div>
           <div class="chart-box short"><canvas id="cUtil"></canvas></div>
           <p class="note">Statement total due ÷ credit limit, as read from each statement. Below 30% is healthy. Gaps mean a value could not be found in that PDF.</p>
         </div>
@@ -558,7 +745,7 @@
     const labels = [...new Set(rows.flatMap(c => c.util.map(u => u.statementDate)).filter(Boolean))].sort();
     chart('cUtil', {
       type: 'line', _fmt: v => pct(v),
-      data: { labels: labels.map(d => dateLabel(d)), datasets: rows.map(c => ({ label: c.card, data: labels.map(d => { const u = c.util.find(x => x.statementDate === d); return u && u.ratio != null ? u.ratio : null; }), borderColor: cardColor(c.card), backgroundColor: cardColor(c.card), borderWidth: 2, pointRadius: 3, spanGaps: true, tension: 0 })) },
+      data: { labels: labels.map(d => dateLabel(d)), datasets: rows.map(c => lineDs(c.card, labels.map(d => { const u = c.util.find(x => x.statementDate === d); return u && u.ratio != null ? u.ratio : null; }), cardColor(c.card), { pointRadius: 3, pointBorderColor: css('--surface'), pointBorderWidth: 1.5, spanGaps: true })) },
       options: { scales: { x: {}, y: { min: 0, ticks: { callback: v => pct(v) } } } },
     });
   }
@@ -663,7 +850,7 @@
       </div>`;
     const ess = A.months.map((m, i) => A.categories.filter(c => c.nature === 'essential').reduce((s, c) => s + c.byMonth[i], 0));
     const dis = A.months.map((m, i) => A.categories.filter(c => c.nature === 'discretionary').reduce((s, c) => s + c.byMonth[i], 0));
-    chart('cNature', { type: 'bar', data: { labels: A.months.map(monthLabel), datasets: [barDs('Essential', ess, seriesColor(0), { stack: 's' }), barDs('Discretionary', dis, seriesColor(1), { stack: 's', borderWidth: { top: 2 } })] }, options: { scales: { x: { stacked: true }, y: { stacked: true, ticks: { callback: v => inrC(v) } } } } });
+    chart('cNature', { type: 'bar', data: { labels: A.months.map(monthLabel), datasets: stacked([barDs('Essential', ess, seriesColor(0)), barDs('Discretionary', dis, seriesColor(1))]) }, options: { scales: { x: { stacked: true }, y: { stacked: true, ticks: { callback: v => inrC(v) } } } } });
   }
 
   function viewSavings(A) {
@@ -693,7 +880,7 @@
         <div class="card" id="savingsOut"></div>
       </div>
       <div class="card">
-        <div class="head"><h2>If you invested the savings</h2>${legendHtml([['Value if invested', seriesColor(0)], ['Amount invested', seriesColor(1)]])}</div>
+        <div class="head"><h2>If you invested the savings</h2>${legendHtml([['Value if invested', seriesColor(0)], ['Amount invested', seriesColor(1)]], 'line')}</div>
         <div class="chart-box short"><canvas id="cFV"></canvas></div>
         <p class="note">Assumes the monthly saving is invested at the start of each month and grows at the chosen annual rate, compounded monthly. Taxes and costs are left out, and real returns go up and down, so treat this as a rough guide.</p>
       </div>
@@ -717,8 +904,8 @@
           <tr><td>Income left after card spend</td><td class="r">${inr(income - A.avgMonthly)}/mo</td></tr></tbody></table>
           <p class="note">This covers card spend only. Rent, EMIs and investments paid from your bank account aren't included.</p>` : '<p class="note">Add your monthly income to see spend-to-income ratios.</p>'}`;
       chart('cFV', { type: 'line', data: { labels: fv.series.map(p => 'Yr ' + p.year), datasets: [
-        { label: 'Value if invested', data: fv.series.map(p => p.value), borderColor: seriesColor(0), backgroundColor: seriesColor(0), borderWidth: 2, pointRadius: 0, pointHoverRadius: 5, tension: 0.2 },
-        { label: 'Amount invested', data: fv.series.map(p => p.invested), borderColor: seriesColor(1), backgroundColor: seriesColor(1), borderWidth: 2, pointRadius: 0, pointHoverRadius: 5, borderDash: [5, 4] }] },
+        lineDs('Value if invested', fv.series.map(p => p.value), seriesColor(0), { fill: 'origin', backgroundColor: seriesColor(0) + '1a', pointRadius: ctx => ctx.dataIndex === fv.series.length - 1 ? 4 : 0, pointBackgroundColor: seriesColor(0), pointBorderColor: css('--surface'), pointBorderWidth: 2 }),
+        lineDs('Amount invested', fv.series.map(p => p.invested), seriesColor(1), { borderDash: [5, 4] })] },
         options: { scales: { x: {}, y: { ticks: { callback: v => inrC(v) } } } } });
     };
     el.querySelectorAll('input[data-cut]').forEach(r => r.oninput = () => {
@@ -751,7 +938,7 @@
     return r;
   }
 
-  let txnQuery = '', txnCat = '', txnSort = 'date-desc';
+  let txnQuery = '', txnCat = '', txnSort = 'date-desc', txnLimit = 300;
   function viewTransactions(F) {
     const el = $('#tab-transactions');
     const cats = Object.keys(Categoriser.CATEGORIES);
@@ -759,7 +946,8 @@
     let list = F.txns.filter(t => (!q || (t.description + ' ' + t.merchant).toLowerCase().includes(q)) && (!txnCat || t.category === txnCat));
     const [k, dir] = txnSort.split('-');
     list.sort((a, b) => (k === 'amount' ? a.amount - b.amount : a.date.localeCompare(b.date)) * (dir === 'desc' ? -1 : 1));
-    const shown = list.slice(0, 1500);
+    const shown = list.slice(0, txnLimit);
+    const colorOf = Object.fromEntries(cardOrder().map(c => [c, cardColor(c)]));
     const tot = list.reduce((s, t) => s + (t.type === 'debit' ? t.amount : -t.amount), 0);
     el.innerHTML = `
       <div class="card">
@@ -771,25 +959,43 @@
             <select id="ts"><option value="date-desc">Newest first</option><option value="date-asc">Oldest first</option><option value="amount-desc">Largest first</option><option value="amount-asc">Smallest first</option></select>
           </div>
         </div>
-        <p class="small muted" style="margin-bottom:8px">${list.length} transactions · net ${inr(tot)}${list.length > shown.length ? ` · showing the first ${shown.length}` : ''}. Change a category and it applies to <b>every</b> transaction from that merchant.</p>
+        <p class="small muted" style="margin-bottom:8px">${list.length} transactions · net ${inr(tot)}${list.length > shown.length ? ` · showing ${shown.length}` : ''}. Change a category and it applies to <b>every</b> transaction from that merchant.</p>
         <div class="table-wrap" style="max-height:640px"><table>
           <thead><tr><th>Date</th><th>Description</th><th>Merchant</th><th>Category</th><th>Card</th><th class="r">Amount</th></tr></thead>
           <tbody>${shown.map(t => `<tr><td class="num">${dateLabel(t.date)}${t.time ? `<div class="small muted">${t.time}</div>` : ''}</td><td class="small">${esc(t.description)}</td><td>${esc(t.merchant)}</td>
-            <td><select data-merchant="${esc(t.merchant)}" style="max-width:190px">${cats.map(c => `<option ${c === t.category ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>${t.overridden ? ' <span class="tag" title="Edited by you">edited</span>' : ''}</td>
-            <td><i class="swatch" style="background:${cardColor(t.card)}" title="${esc(t.card)}"></i></td>
+            <td><button class="catbtn" data-merchant="${esc(t.merchant)}" data-cat="${esc(t.category)}" title="Change category">${esc(t.category)}</button>${t.overridden ? ' <span class="tag" title="Edited by you">edited</span>' : ''}</td>
+            <td><i class="swatch" style="background:${colorOf[t.card]}" title="${esc(t.card)}"></i></td>
             <td class="r ${t.type === 'credit' ? 'ok' : ''}">${t.type === 'credit' ? '+' : ''}${fmtINR(t.amount, { decimals: true })}</td></tr>`).join('')}</tbody>
         </table></div>
+        ${list.length > shown.length ? `<div style="text-align:center;margin-top:12px"><button class="btn" id="txMore">Show ${Math.min(500, list.length - shown.length)} more</button></div>` : ''}
       </div>`;
     $('#ts').value = txnSort;
-    let deb; $('#tq').oninput = e => { clearTimeout(deb); deb = setTimeout(() => { txnQuery = e.target.value; viewTransactions(filtered()); const i = $('#tq'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }, 200); };
+    if ($('#txMore')) $('#txMore').onclick = () => { txnLimit += 500; viewTransactions(filtered()); };
+    let deb; $('#tq').oninput = e => { clearTimeout(deb); deb = setTimeout(() => { txnQuery = e.target.value; txnLimit = 300; viewTransactions(filtered()); const i = $('#tq'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }, 200); };
     $('#tc').onchange = e => { txnCat = e.target.value; viewTransactions(filtered()); };
     $('#ts').onchange = e => { txnSort = e.target.value; viewTransactions(filtered()); };
-    el.querySelectorAll('select[data-merchant]').forEach(s => s.onchange = () => { state.overrides[s.dataset.merchant] = s.value; saveOverrides(); render(); });
+    el.querySelector('tbody').onclick = e => {
+      const b = e.target.closest('.catbtn');
+      if (!b) return;
+      const sel = document.createElement('select');
+      sel.style.maxWidth = '190px';
+      for (const c of cats) { const o = document.createElement('option'); o.textContent = c; o.selected = c === b.dataset.cat; sel.appendChild(o); }
+      b.replaceWith(sel);
+      sel.focus();
+      sel.onchange = () => { state.overrides[b.dataset.merchant] = sel.value; saveOverrides(); render(); };
+      sel.onblur = () => { if (sel.isConnected && sel.value === b.dataset.cat) sel.replaceWith(b); };
+    };
   }
 
   const KEEP_WORDS = new Set('date dates transaction transactions description details amount amounts total due minimum payment statement credit debit limit available cash balance opening closing previous purchases reward rewards points cr dr rs inr reference ref no merchant category domestic international emi interest finance charges charge fee fees gst igst cgst sgst tax card number name page of time pi upi'.split(' '));
   function anonymise(lines) {
     return lines.map(l => l.replace(/[A-Za-z]+/g, w => KEEP_WORDS.has(w.toLowerCase()) ? w : w.replace(/[a-z]/g, 'x').replace(/[A-Z]/g, 'X')).replace(/\d/g, '9')).join('\n');
+  }
+
+  const rawCache = new Map();
+  async function rawOf(s) {
+    if (!rawCache.has(s.id)) rawCache.set(s.id, await api('GET', `raw?id=${encodeURIComponent(s.id)}`));
+    return rawCache.get(s.id);
   }
 
   function viewParser() {
@@ -812,16 +1018,19 @@
         </table></div>
       </div>
       <div class="card" id="rawBox" style="display:none"></div>`;
-    el.querySelectorAll('[data-raw]').forEach(b => b.onclick = () => {
+    el.querySelectorAll('[data-raw]').forEach(b => b.onclick = async () => {
       const s = sts[+b.dataset.raw];
       const box = $('#rawBox'); box.style.display = '';
-      box.innerHTML = `<div class="head"><h3>${esc(s.fileName)}</h3><span class="small muted">${s.rawLines.length} lines · highlighted = read as a transaction</span></div>
-        ${s.rawLines.length ? `<pre class="raw">${s.rawLines.map((l, j) => `<span class="${s.lineFlags[j] ? 'hit' : ''}">${esc(l) || ' '}</span>`).join('')}</pre>` : '<p class="muted">No raw text was saved for this statement. Delete it here and import it again to see it.</p>'}`;
+      box.innerHTML = '<p class="muted">Loading…</p>';
+      const raw = await rawOf(s);
+      box.innerHTML = `<div class="head"><h3>${esc(s.fileName)}</h3><span class="small muted">${raw.rawLines.length} lines · highlighted = read as a transaction</span></div>
+        ${raw.rawLines.length ? `<pre class="raw">${raw.rawLines.map((l, j) => `<span class="${raw.lineFlags[j] ? 'hit' : ''}">${esc(l) || ' '}</span>`).join('')}</pre>` : '<p class="muted">No raw text was saved for this statement. Delete it here and import it again to see it.</p>'}`;
       box.scrollIntoView({ behavior: 'smooth' });
     });
     el.querySelectorAll('[data-anon]').forEach(b => b.onclick = async () => {
       const s = sts[+b.dataset.anon];
-      const txt = `# ${s.card} (${s.rawLines.length} lines, ${s.txns.length} parsed)\n` + anonymise(s.rawLines.map((l, j) => (s.lineFlags[j] ? '[T] ' : '    ') + l));
+      const raw = await rawOf(s);
+      const txt = `# ${s.card} (${raw.rawLines.length} lines, ${s.txns.length} parsed)\n` + anonymise(raw.rawLines.map((l, j) => (raw.lineFlags[j] ? '[T] ' : '    ') + l));
       try { await navigator.clipboard.writeText(txt); b.textContent = 'Copied ✓'; } catch { const box = $('#rawBox'); box.style.display = ''; box.innerHTML = `<pre class="raw">${esc(txt)}</pre>`; }
     });
     el.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
@@ -862,12 +1071,14 @@
     renderFilters(F.all);
     const nSt = state.statements.length, nC = cardOrder().length;
     $('#subtitle').textContent = `${nSt} statements · ${nC} card${nC > 1 ? 's' : ''} · ${F.all.length} transactions · processed locally`;
-    const A = analyse(F.txns, F.statements, { pointValue: state.settings.pointValue, smallLimit: state.settings.smallLimit });
+    const aKey = memo.fKey + '|' + JSON.stringify([state.settings.pointValue, state.settings.smallLimit]);
+    if (memo.aKey !== aKey) { memo.A = analyse(F.txns, F.statements, { pointValue: state.settings.pointValue, smallLimit: state.settings.smallLimit }); memo.aKey = aKey; }
+    const A = memo.A;
     if (A.empty && state.tab !== 'parser') {
       document.querySelectorAll('section.tab.active').forEach(s => s.innerHTML = '<div class="card"><p>No transactions in the selected filters. If statements are loaded but show 0 transactions, open <b>Parser check</b>.</p></div>');
       return;
     }
-    const views = { overview: () => viewOverview(A), spending: () => viewSpending(A), merchants: () => viewMerchants(A), cards: () => viewCards(A), leakage: () => viewLeakage(A), behaviour: () => viewBehaviour(A), savings: () => viewSavings(A), transactions: () => viewTransactions(F), parser: viewParser };
+    const views = { overview: () => viewOverview(A), spending: () => viewSpending(A, F), merchants: () => viewMerchants(A), cards: () => viewCards(A), leakage: () => viewLeakage(A), behaviour: () => viewBehaviour(A), savings: () => viewSavings(A), transactions: () => viewTransactions(F), parser: viewParser };
     (views[state.tab] || views.overview)();
   }
 
