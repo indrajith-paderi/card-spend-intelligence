@@ -145,13 +145,13 @@
       const mad = median(amts.map(a => Math.abs(a - med))) || med * 0.5 || 1;
       for (const t of list) {
         const z = 0.6745 * (t.amount - med) / mad;
-        if (z > 3.5 && t.amount >= 3 * med && t.amount >= 1000) anomalies.push({ txn: t, reason: `${(t.amount / med).toFixed(1)}× the typical ${cat} transaction (${fmtINR(med)})`, score: z });
+        if (z > 3.5 && t.amount >= 3 * med && t.amount >= 1000) anomalies.push({ txn: t, reason: `${Math.round(t.amount / med)} times a usual ${cat.toLowerCase()} purchase (${fmtINR(med)})`, score: z });
       }
     }
     const seenMerchant = new Map();
     const p95 = [...spend.map(t => t.amount)].sort((a, b) => a - b)[Math.floor(spend.length * 0.95)] || Infinity;
     [...spend].sort((a, b) => a.date.localeCompare(b.date)).forEach(t => {
-      if (!seenMerchant.has(t.merchant)) { seenMerchant.set(t.merchant, 1); if (t.amount >= p95 && t.amount >= 2000 && !anomalies.find(a => a.txn === t)) anomalies.push({ txn: t, reason: 'Large first-time merchant (top 5% of transaction size)', score: 3 }); }
+      if (!seenMerchant.has(t.merchant)) { seenMerchant.set(t.merchant, 1); if (t.amount >= p95 && t.amount >= 2000 && !anomalies.find(a => a.txn === t)) anomalies.push({ txn: t, reason: 'First purchase here, and one of your biggest', score: 3 }); }
     });
     // category spikes
     const spikes = [];

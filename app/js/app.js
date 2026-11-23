@@ -4,6 +4,7 @@
   const { analyse, fmtINR, futureValue, FEE_CATS, isSpend } = Analysis;
   const IS_WIN = /win/i.test((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '');
   const $ = s => document.querySelector(s);
+  document.querySelectorAll('i[data-icon]').forEach(i => { const t = document.createElement('template'); t.innerHTML = Icon(i.dataset.icon, i.className); i.replaceWith(t.content.firstChild); });
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const pct = (v, d = 0) => v == null || isNaN(v) ? '—' : (v * 100).toFixed(d) + '%';
   const inr = v => fmtINR(v);
@@ -81,7 +82,7 @@
   function askPassword(card, fileName, errorMsg, canRename) {
     return new Promise(resolve => {
       const dlg = $('#pwDialog');
-      $('#pwTitle').textContent = 'Unlock ' + card;
+      $('#pwTitle').innerHTML = Icon('lock') + 'Unlock ' + esc(card);
       $('#pwInfo').textContent = `Password-protected statement: ${fileName}. The password is used in this tab only and is never stored.`;
       $('#pwCard').value = card;
       $('#pwCardRow').style.display = canRename ? '' : 'none';
@@ -165,7 +166,7 @@
   }
   function updateScanButton() {
     const n = pendingCount();
-    $('#scanBtn').textContent = n ? `Import ${n} new statement${n > 1 ? 's' : ''}` : 'Scan folders';
+    $('#scanBtn').innerHTML = Icon(n ? 'download' : 'scan') + (n ? `Import ${n} new statement${n > 1 ? 's' : ''}` : 'Scan folders');
     $('#scanBtn').classList.toggle('primary', n > 0);
   }
   $('#scanBtn').addEventListener('click', () => { if (state.folders.length) scan({ import: true }); else { state.tab = 'folders'; render(); } });
@@ -299,11 +300,11 @@
   }
 
   /* ---------- tabs & filters ---------- */
-  const TABS = [['overview', 'Overview'], ['spending', 'Spending'], ['merchants', 'Merchants'], ['cards', 'Cards'], ['leakage', 'Leakage & risk'], ['behaviour', 'Behaviour'], ['savings', 'Savings & wealth'], ['transactions', 'Transactions'], ['parser', 'Parser check'], ['folders', 'Folders']];
+  const TABS = [['overview', 'Overview'], ['spending', 'Spending'], ['merchants', 'Merchants'], ['cards', 'Cards'], ['leakage', 'Fees & subscriptions'], ['behaviour', 'Habits'], ['savings', 'Savings'], ['transactions', 'Transactions'], ['parser', 'Parser check'], ['folders', 'Folders']];
   function renderTabs(hasData, tab) {
     const nav = $('#tabs');
     const tabs = hasData ? TABS : TABS.filter(t => t[0] === 'folders');
-    nav.innerHTML = tabs.map(([k, l]) => `<button role="tab" data-tab="${k}" aria-selected="${tab === k}">${l}</button>`).join('');
+    nav.innerHTML = tabs.map(([k, l]) => `<button role="tab" data-tab="${k}" aria-selected="${tab === k}">${Icon(k)}${l}</button>`).join('');
     nav.querySelectorAll('button').forEach(b => b.onclick = () => { state.tab = b.dataset.tab; store.set('tab', state.tab); render(); });
     document.querySelectorAll('section.tab').forEach(s => s.classList.toggle('active', s.id === 'tab-' + tab));
   }
@@ -377,26 +378,28 @@
     const B = A.behaviour;
     const interest = A.feeGroups.find(g => g.name === 'Interest & finance charges');
     const late = A.feeGroups.find(g => g.name === 'Late payment fees');
-    if (interest) add('critical', `<b>You paid ${inr(interest.total)} in interest/finance charges</b> (${inr(interest.annual)}/yr run-rate). This means a balance was revolving. Paying the full statement balance by the due date brings this to ₹0. Clear the highest-interest balance first.`);
-    if (late) add('critical', `<b>${late.count} late-payment fee${late.count > 1 ? 's' : ''} totalling ${inr(late.total)}</b>. Late payments also hurt your credit score. Set up auto-debit for at least the minimum due on every card.`);
-    if (A.cashAdv.length) add('critical', `<b>${A.cashAdv.length} cash withdrawal${A.cashAdv.length > 1 ? 's' : ''} on credit card (${inr(A.cashAdv.reduce((s, t) => s + t.amount, 0))})</b>. Cash advances start charging interest from day one and carry a fee.`);
+    if (interest) add('critical', `<b>${inr(interest.total)} paid in interest</b>, about ${inr(interest.annual)} a year at this rate. Banks only charge interest when a bill isn't paid in full, so paying the total due every month takes this to zero.`);
+    if (late) add('critical', `<b>${late.count} late payment fee${late.count > 1 ? 's' : ''}, ${inr(late.total)} in total.</b> An auto-debit for the full amount on each card stops this from happening again and keeps your credit score safe.`);
+    if (A.cashAdv.length) add('critical', `<b>${A.cashAdv.length} cash withdrawal${A.cashAdv.length > 1 ? 's' : ''} on a credit card, ${inr(A.cashAdv.reduce((s, t) => s + t.amount, 0))}.</b> Cash from a credit card is charged interest from the same day, plus a fee.`);
     const shortfalls = A.cardStats.flatMap(c => c.shortfalls.map(s => ({ ...s, card: c.card })));
-    if (shortfalls.length) add('serious', `<b>${shortfalls.length} statement${shortfalls.length > 1 ? 's' : ''} where the next payment was below the total due</b>. Check these on the Cards tab. This is how interest starts. (Can be a false alarm if you paid from outside the statement cycle.)`);
+    if (shortfalls.length) add('serious', `<b>${shortfalls.length} statement${shortfalls.length > 1 ? 's were' : ' was'} not paid in full</b> before the next one. The details are on the Cards tab. If you paid it some other way the statements don't show, you can ignore this.`);
     const otherFees = A.feeGroups.filter(g => !['Interest & finance charges', 'Late payment fees'].includes(g.name));
     const otherFeeTotal = otherFees.reduce((s, g) => s + g.total, 0);
-    if (otherFeeTotal > 0) add('serious', `<b>${inr(otherFeeTotal)} in other card charges</b> (${otherFees.map(g => `${g.name.toLowerCase()} ${inr(g.total)}`).join(', ')}). Ask for annual-fee waivers. Many banks waive the fee once you cross a spend threshold.`);
+    if (otherFeeTotal > 0) add('serious', `<b>${inr(otherFeeTotal)} in other card charges:</b> ${otherFees.map(g => `${g.name.toLowerCase().replace('gst', 'GST')} ${inr(g.total)}`).join(', ')}. Most banks drop the annual fee if you ask, or once you spend above a set amount in the year.`);
     const subs = A.recurring.filter(r => r.active);
-    if (subs.length) add('warning', `<b>${subs.length} recurring payment${subs.length > 1 ? 's' : ''} still active, about ${inr(subs.reduce((s, r) => s + r.monthly, 0))}/month (${inr(subs.reduce((s, r) => s + r.annual, 0))}/yr)</b>. Top ones: ${subs.slice(0, 4).map(r => esc(r.name)).join(', ')}. Review them on the Leakage tab.`);
-    if (A.duplicates.length) add('warning', `<b>${A.duplicates.length} possible duplicate charge${A.duplicates.length > 1 ? 's' : ''}</b> (same merchant and amount within a day). Worth checking against your receipts.`);
-    if (A.missedSwiggy && A.missedSwiggy.total > 0) add('warning', `<b>${inr(A.missedSwiggy.total)} of Swiggy spend went on cards other than your Swiggy card</b>. The HDFC Swiggy card typically pays its highest cashback on Swiggy. At 10% that is roughly ${inr(A.missedSwiggy.total * 0.1)} missed (check the card's current terms).`);
-    if (B.foodShare > 0.15) add('info', `<b>Food delivery is ${pct(B.foodShare)} of card spend</b> (${inr(B.foodDelivery / A.nMonths)}/month, about ${B.foodOrdersPerMonth.toFixed(0)} orders a month). Cutting this by a quarter frees about ${inr(B.foodDelivery / A.nMonths * 0.25)}/month.`);
-    if (B.slopePct > 0.02 && A.nMonths >= 6) add('warning', `<b>Spending is trending up about ${pct(B.slopePct, 1)} a month</b> (average of the last 3 months ${inr(B.last3)} vs the first 3 months ${inr(B.first3)}). This is a lifestyle-inflation signal. Compare it with how fast your income is growing.`);
-    if (B.smallPerMonth > 15) add('info', `<b>${B.smallPerMonth.toFixed(0)} small purchases (under ₹${A.smallLimit}) a month</b>, together ${inr(A.small.reduce((s, t) => s + t.amount, 0) / A.nMonths)}/month. Small amounts add up.`);
+    if (subs.length) add('warning', `<b>${subs.length} recurring payment${subs.length > 1 ? 's' : ''}, about ${inr(subs.reduce((s, r) => s + r.monthly, 0))} a month</b> (${inr(subs.reduce((s, r) => s + r.annual, 0))} a year). The biggest are ${subs.slice(0, 4).map(r => esc(r.name)).join(', ')}. The full list is on the Fees & subscriptions tab.`);
+    if (A.duplicates.length) add('warning', `<b>${A.duplicates.length} possible duplicate charge${A.duplicates.length > 1 ? 's' : ''}</b> with the same merchant and amount on the same day. Worth checking against your receipts.`);
+    if (A.missedSwiggy && A.missedSwiggy.total > 0) add('warning', `<b>${inr(A.missedSwiggy.total)} of Swiggy orders went on other cards.</b> The Swiggy card gives its best cashback on Swiggy itself. At 10% that's about ${inr(A.missedSwiggy.total * 0.1)} you could have got back.`);
+    if (B.foodShare > 0.15) add('info', `<b>Food delivery is ${pct(B.foodShare)} of card spend</b>, ${inr(B.foodDelivery / A.nMonths)} and about ${B.foodOrdersPerMonth.toFixed(0)} orders a month. Ordering a quarter less would save about ${inr(B.foodDelivery / A.nMonths * 0.25)} a month.`);
+    if (B.slopePct > 0.02 && A.nMonths >= 6) add('warning', `<b>Spending is going up about ${pct(B.slopePct, 1)} a month.</b> The last 3 months averaged ${inr(B.last3)}, against ${inr(B.first3)} in the first 3.`);
+    if (B.smallPerMonth > 15) add('info', `<b>${B.smallPerMonth.toFixed(0)} purchases under ₹${A.smallLimit} a month</b>, ${inr(A.small.reduce((s, t) => s + t.amount, 0) / A.nMonths)} a month in total.`);
     const util = A.cardStats.filter(c => c.maxUtil != null && c.maxUtil > 0.3);
-    if (util.length) add('warning', `<b>High credit utilization</b> on ${util.map(c => `${esc(c.card)} (peak ${pct(c.maxUtil)})`).join(', ')}. Keeping the statement balance under 30% of the limit helps your credit score.`);
-    if (!interest && !late && !shortfalls.length) add('good', `<b>No interest or late fees found</b> in the selected period. You seem to pay in full, which is the most important credit-card habit.`);
+    if (util.length) add('warning', `<b>Balance went above 30% of the limit</b> on ${util.map(c => `${esc(c.card)} (up to ${pct(c.maxUtil)})`).join(', ')}. Keeping it lower on statement day helps your credit score.`);
+    if (!interest && !late && !shortfalls.length) add('good', `<b>No interest or late fees</b> in this period. Every bill looks paid in full.`);
     return out;
   }
+
+  const badge = sev => `<span class="badge ${sev}" title="${sev}">${Icon({ critical: 'alert', serious: 'alert', warning: 'warn', info: 'info', good: 'check' }[sev])}</span>`;
 
   /* ---------- views ---------- */
   function viewOverview(A) {
@@ -423,12 +426,12 @@
         </div>
       </div>
       <div class="card">
-        <div class="head"><h2>Key findings</h2><span class="small muted">From your selected statements</span></div>
-        <ul class="insights">${ins.map(i => `<li><span class="badge ${i.sev}" aria-label="${i.sev}">${{ critical: '!', serious: '!', warning: '•', info: 'i', good: '✓' }[i.sev]}</span><div>${i.html}</div></li>`).join('')}</ul>
+        <div class="head"><h2>What stands out</h2><span class="small muted">From the statements selected above</span></div>
+        <ul class="insights">${ins.map(i => `<li>${badge(i.sev)}<div>${i.html}</div></li>`).join('')}</ul>
       </div>
       <div class="grid g3">
         <div class="card kpi"><div class="label">Essential vs discretionary</div><div class="value">${pct(A.discretionary / (A.totalSpend || 1))}</div><div class="sub">discretionary (${inr(A.discretionary / A.nMonths)}/mo) · essential ${inr(A.essential / A.nMonths)}/mo</div></div>
-        <div class="card kpi"><div class="label">Merchant concentration</div><div class="value">${A.merchantsA}</div><div class="sub">merchants make up 80% of spend, out of ${A.merchants.length} in total</div></div>
+        <div class="card kpi"><div class="label">Where most of it goes</div><div class="value">${A.merchantsA}</div><div class="sub">merchants take 80% of spend, out of ${A.merchants.length} in total</div></div>
         <div class="card kpi"><div class="label">Bill payments made</div><div class="value">${inr(A.totalPayments)}</div><div class="sub">Paying your card bill is not counted as spending</div></div>
       </div>`;
     chart('cMonthly', {
@@ -487,7 +490,7 @@
         ${kpi('Paid with more than one card', A.multiCardMerchants.length, 'Merchants you split across cards')}
       </div>
       <div class="card">
-        <div class="head"><h2>Merchant ABC / Pareto analysis</h2><span class="small muted">A = top 80% of spend · B = next 15% · C = the rest</span></div>
+        <div class="head"><h2>Top merchants</h2><span class="small muted">Class A is the top 80% of spend, B the next 15%, C the rest</span></div>
         <div class="table-wrap"><table>
           <thead><tr><th>#</th><th>Merchant</th><th>Class</th><th>Category</th><th class="r">Total</th><th class="r">Share</th><th class="r">Cumulative</th><th class="r">Txns</th><th class="r">Avg</th><th class="r">Months</th><th>Cards</th></tr></thead>
           <tbody>${top.map((m, i) => `<tr><td class="muted">${i + 1}</td><td>${esc(m.name)}</td><td><span class="tag ${m.abc}">${m.abc}</span></td><td class="ink2">${esc(m.category)}</td><td class="r">${inr(m.total)}</td><td class="r">${pct(m.share, 1)}</td><td class="r muted">${pct(m.cumShare)}</td><td class="r">${m.count}</td><td class="r">${inr(m.avg)}</td><td class="r">${m.months}</td><td>${m.cards.map(c => `<i class="swatch" title="${esc(c)}" style="background:${cardColor(c)}"></i>`).join(' ')}</td></tr>`).join('')}</tbody>
@@ -524,17 +527,17 @@
         </div>
       </div>
       <div class="card">
-        <div class="head"><h2>Payment behaviour</h2><span class="small muted">The payment in the next statement compared with the total due of this one</span></div>
+        <div class="head"><h2>Were bills paid in full?</h2><span class="small muted">The payment in the next statement compared with the total due of this one</span></div>
         ${rows.some(c => c.shortfalls.length) ? `<table><thead><tr><th>Card</th><th>Statement</th><th class="r">Total due</th><th class="r">Paid in next cycle</th><th class="r">Shortfall</th></tr></thead><tbody>
           ${rows.flatMap(c => c.shortfalls.map(s => `<tr><td>${esc(c.card)}</td><td>${dateLabel(s.statementDate)}</td><td class="r">${inr(s.due)}</td><td class="r">${inr(s.paid)}</td><td class="r bad">${inr(s.due - s.paid)}</td></tr>`)).join('')}</tbody></table>`
         : `<p class="ok">✓ Every statement with a readable total due was fully paid in the next cycle.</p>`}
       </div>
       <div class="card">
-        <div class="head"><h2>Cross-card optimisation</h2></div>
+        <div class="head"><h2>Which card to use where</h2></div>
         <ul class="insights">
-          ${A.missedSwiggy ? `<li><span class="badge warning">•</span><div>${inr(A.missedSwiggy.total)} of Swiggy/Instamart spend (${A.missedSwiggy.count} txns) was paid with other cards. Send it through <b>${esc(A.missedSwiggy.card)}</b>.</div></li>` : ''}
-          ${A.multiCardMerchants.slice(0, 8).map(m => `<li><span class="badge info">i</span><div><b>${esc(m.name)}</b> (${inr(m.total)}) was paid with ${m.cards.length} cards: ${m.cards.map(esc).join(', ')}. Pick the card that earns the most for ${esc(m.category.toLowerCase())}.</div></li>`).join('')}
-          ${!A.missedSwiggy && !A.multiCardMerchants.length ? '<li><span class="badge good">✓</span><div>Each merchant is mostly paid with a single card.</div></li>' : ''}
+          ${A.missedSwiggy ? `<li>${badge('warning')}<div>${inr(A.missedSwiggy.total)} of Swiggy/Instamart spend (${A.missedSwiggy.count} txns) was paid with other cards. Send it through <b>${esc(A.missedSwiggy.card)}</b>.</div></li>` : ''}
+          ${A.multiCardMerchants.slice(0, 8).map(m => `<li>${badge('info')}<div><b>${esc(m.name)}</b> (${inr(m.total)}) was paid with ${m.cards.length} cards: ${m.cards.map(esc).join(', ')}. Pick the card that earns the most for ${esc(m.category.toLowerCase())}.</div></li>`).join('')}
+          ${!A.missedSwiggy && !A.multiCardMerchants.length ? `<li>${badge('good')}<div>Each merchant is mostly paid with a single card.</div></li>` : ''}
         </ul>
       </div>`;
     el.querySelectorAll('input[data-pv]').forEach(inp => inp.onchange = () => { state.settings.pointValue[inp.dataset.pv] = parseFloat(inp.value) || 0; saveSettings(); render(); });
@@ -551,12 +554,12 @@
     const subsAnnual = A.recurring.filter(r => r.active).reduce((s, r) => s + r.annual, 0);
     const forexTotal = A.forexSpend.reduce((s, t) => s + t.amount, 0);
     const leak = [
-      ['Interest & finance charges', 'High priority', A.feeGroups.find(g => g.name === 'Interest & finance charges')],
-      ['Late payment fees', 'High priority', A.feeGroups.find(g => g.name === 'Late payment fees')],
-      ['Card fees', 'Investigate', A.feeGroups.find(g => g.name === 'Card fees')],
-      ['Taxes (GST)', 'Follows from fees', A.feeGroups.find(g => g.name === 'Taxes (GST)')],
-      ['Forex markup', 'Investigate', A.feeGroups.find(g => g.name === 'Forex markup')],
-      ['Fuel surcharge', 'Investigate', A.feeGroups.find(g => g.name === 'Fuel surcharge')],
+      ['Interest & finance charges', 'Avoidable', A.feeGroups.find(g => g.name === 'Interest & finance charges')],
+      ['Late payment fees', 'Avoidable', A.feeGroups.find(g => g.name === 'Late payment fees')],
+      ['Card fees', 'Worth a look', A.feeGroups.find(g => g.name === 'Card fees')],
+      ['Taxes (GST)', 'Tax on fees', A.feeGroups.find(g => g.name === 'Taxes (GST)')],
+      ['Forex markup', 'Worth a look', A.feeGroups.find(g => g.name === 'Forex markup')],
+      ['Fuel surcharge', 'Worth a look', A.feeGroups.find(g => g.name === 'Fuel surcharge')],
     ];
     el.innerHTML = `
       <div class="grid g4">
@@ -566,11 +569,11 @@
         ${kpi('Foreign-currency spend', inr(forexTotal), `${A.forexSpend.length} txns · a markup of about 3.5% is common`)}
       </div>
       <div class="card">
-        <div class="head"><h2>Financial leakage audit</h2></div>
-        <table><thead><tr><th>Leak</th><th>Priority</th><th class="r">Occurrences</th><th class="r">Paid</th><th class="r">Annualised</th></tr></thead>
+        <div class="head"><h2>Fees and charges</h2></div>
+        <table><thead><tr><th>Charge</th><th></th><th class="r">Occurrences</th><th class="r">Paid</th><th class="r">Per year</th></tr></thead>
         <tbody>${leak.map(([n, p, g]) => `<tr><td>${n}</td><td><span class="tag">${p}</span></td><td class="r">${g ? g.count : 0}</td><td class="r ${g ? 'bad' : 'ok'}">${g ? inr(g.total) : '₹0'}</td><td class="r">${g ? inr(g.annual) : '—'}</td></tr>`).join('')}
-          <tr><td>Recurring / subscriptions</td><td><span class="tag">Investigate</span></td><td class="r">${A.recurring.filter(r => r.active).length}</td><td class="r">—</td><td class="r">${inr(subsAnnual)}</td></tr>
-          ${A.feeGroups.find(g => g.name === 'Forex markup') ? '' : `<tr><td>Forex markup (estimated at 3.5%)</td><td><span class="tag">Investigate</span></td><td class="r">${A.forexSpend.length}</td><td class="r">${inr(forexTotal * 0.035)}</td><td class="r">${inr(forexTotal * 0.035 * 12 / A.nMonths)}</td></tr>`}
+          <tr><td>Recurring / subscriptions</td><td><span class="tag">Worth a look</span></td><td class="r">${A.recurring.filter(r => r.active).length}</td><td class="r">—</td><td class="r">${inr(subsAnnual)}</td></tr>
+          ${A.feeGroups.find(g => g.name === 'Forex markup') ? '' : `<tr><td>Forex markup (estimated at 3.5%)</td><td><span class="tag">Worth a look</span></td><td class="r">${A.forexSpend.length}</td><td class="r">${inr(forexTotal * 0.035)}</td><td class="r">${inr(forexTotal * 0.035 * 12 / A.nMonths)}</td></tr>`}
         </tbody></table>
         ${A.feeGroups.length ? `<details style="margin-top:12px"><summary class="small">Show every fee line (${A.feeGroups.reduce((s, g) => s + g.count, 0)})</summary>${txnTable(A.feeGroups.flatMap(g => g.items))}</details>` : ''}
       </div>
@@ -586,12 +589,12 @@
           ${A.duplicates.length ? `<table><thead><tr><th>Merchant</th><th class="r">Amount</th><th>Dates</th><th>Card</th></tr></thead><tbody>${A.duplicates.map(([a, b]) => `<tr><td>${esc(a.merchant)}</td><td class="r">${inr(a.amount)}</td><td>${dateLabel(a.date)} / ${dateLabel(b.date)}</td><td class="small">${esc(a.card)}</td></tr>`).join('')}</tbody></table>` : '<p class="ok">✓ None found.</p>'}
         </div>
         <div class="card">
-          <div class="head"><h2>Unusual transactions</h2><span class="small muted">Robust outlier test within each category</span></div>
+          <div class="head"><h2>Unusual transactions</h2><span class="small muted">Much bigger than usual for their category</span></div>
           ${A.anomalies.length ? `<div class="table-wrap" style="max-height:360px"><table><thead><tr><th>Date</th><th>Merchant</th><th class="r">Amount</th><th>Why</th></tr></thead><tbody>${A.anomalies.map(a => `<tr><td>${dateLabel(a.txn.date)}</td><td>${esc(a.txn.merchant)}</td><td class="r">${inr(a.txn.amount)}</td><td class="small ink2">${esc(a.reason)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="ok">✓ Nothing unusual.</p>'}
         </div>
       </div>
       <div class="card">
-        <div class="head"><h2>Risk checklist</h2></div>
+        <div class="head"><h2>Checklist</h2></div>
         <table><tbody>
           ${riskRow('Revolving balance (interest charged)', !A.feeGroups.find(g => g.name === 'Interest & finance charges'), 'Interest seen. A balance was carried over.')}
           ${riskRow('On-time payments (no late fees)', !A.feeGroups.find(g => g.name === 'Late payment fees'), 'Late fees found')}
@@ -613,21 +616,21 @@
     const el = $('#tab-behaviour');
     const B = A.behaviour;
     const rows = [
-      ['Food-delivery dependency', pct(B.foodShare), `${inr(B.foodDelivery / A.nMonths)}/month · ${B.foodOrdersPerMonth.toFixed(1)} orders/month`, B.foodShare > 0.15 ? 'High' : B.foodShare > 0.07 ? 'Moderate' : 'Low'],
-      ['Convenience-driven spend', pct(B.convenienceShare), 'Delivery, quick-commerce and cabs as a share of spend', B.convenienceShare > 0.3 ? 'High' : B.convenienceShare > 0.15 ? 'Moderate' : 'Low'],
-      ['Discretionary share', pct(B.discretionaryShare), 'Wants vs needs (by category)', B.discretionaryShare > 0.6 ? 'High' : B.discretionaryShare > 0.4 ? 'Moderate' : 'Low'],
-      ['Small-ticket frequency', `${B.smallPerMonth.toFixed(1)}/mo`, `${pct(B.smallShareCount)} of purchases are under ₹${A.smallLimit}`, B.smallPerMonth > 20 ? 'High' : B.smallPerMonth > 8 ? 'Moderate' : 'Low'],
-      ['Weekend intensity', B.weekendRatio == null ? '—' : B.weekendRatio.toFixed(2) + '×', 'Weekend spend per day ÷ weekday spend per day', B.weekendRatio > 1.4 ? 'High' : B.weekendRatio > 1.1 ? 'Moderate' : 'Low'],
-      ['Late-night purchases', B.lateNightShare == null ? '—' : pct(B.lateNightShare), B.lateNightShare == null ? 'Your statements have no timestamps' : '11pm to 5am. A possible sign of impulse buying.', B.lateNightShare == null ? '—' : B.lateNightShare > 0.15 ? 'High' : B.lateNightShare > 0.07 ? 'Moderate' : 'Low'],
-      ['Spending consistency', B.cv.toFixed(2), 'Variation in monthly spend (lower = steadier)', B.cv > 0.5 ? 'Volatile' : B.cv > 0.25 ? 'Moderate' : 'Steady'],
-      ['Lifestyle inflation', (B.slopePct >= 0 ? '+' : '') + pct(B.slopePct, 1) + '/mo', `Average of the last 3 months ${inr(B.last3)} vs the first 3 months ${inr(B.first3)}`, B.slopePct > 0.02 ? 'Rising' : B.slopePct < -0.02 ? 'Falling' : 'Flat'],
-      ['Merchant concentration', pct(B.top5Share), 'Share of spend at your top 5 merchants', B.top5Share > 0.5 ? 'Concentrated' : 'Spread out'],
+      ['Food delivery', pct(B.foodShare), `${inr(B.foodDelivery / A.nMonths)}/month · ${B.foodOrdersPerMonth.toFixed(1)} orders/month`, B.foodShare > 0.15 ? 'High' : B.foodShare > 0.07 ? 'Moderate' : 'Low'],
+      ['Delivery and cabs', pct(B.convenienceShare), 'Food delivery, quick commerce and cabs, as a share of spend', B.convenienceShare > 0.3 ? 'High' : B.convenienceShare > 0.15 ? 'Moderate' : 'Low'],
+      ['Wants vs needs', pct(B.discretionaryShare), 'Share of spend on things you could cut back', B.discretionaryShare > 0.6 ? 'High' : B.discretionaryShare > 0.4 ? 'Moderate' : 'Low'],
+      ['Small purchases', `${B.smallPerMonth.toFixed(1)}/mo`, `${pct(B.smallShareCount)} of purchases are under ₹${A.smallLimit}`, B.smallPerMonth > 20 ? 'High' : B.smallPerMonth > 8 ? 'Moderate' : 'Low'],
+      ['Weekend spending', B.weekendRatio == null ? '—' : B.weekendRatio.toFixed(2) + '×', 'Weekend spend per day ÷ weekday spend per day', B.weekendRatio > 1.4 ? 'High' : B.weekendRatio > 1.1 ? 'Moderate' : 'Low'],
+      ['Late-night purchases', B.lateNightShare == null ? '—' : pct(B.lateNightShare), B.lateNightShare == null ? 'Your statements have no timestamps' : 'Between 11pm and 5am', B.lateNightShare == null ? '—' : B.lateNightShare > 0.15 ? 'High' : B.lateNightShare > 0.07 ? 'Moderate' : 'Low'],
+      ['Month to month swings', B.cv.toFixed(2), 'How much monthly spend varies (lower is steadier)', B.cv > 0.5 ? 'Volatile' : B.cv > 0.25 ? 'Moderate' : 'Steady'],
+      ['Spending trend', (B.slopePct >= 0 ? '+' : '') + pct(B.slopePct, 1) + '/mo', `Average of the last 3 months ${inr(B.last3)} vs the first 3 months ${inr(B.first3)}`, B.slopePct > 0.02 ? 'Rising' : B.slopePct < -0.02 ? 'Falling' : 'Flat'],
+      ['Top 5 merchants', pct(B.top5Share), 'Share of spend at your 5 biggest merchants', B.top5Share > 0.5 ? 'Concentrated' : 'Spread out'],
     ];
     const rising = A.categories.filter(c => c.change != null && c.change > 0.2 && c.h2 - c.h1 > 1000).sort((a, b) => (b.h2 - b.h1) - (a.h2 - a.h1));
     el.innerHTML = `
       <div class="card">
-        <div class="head"><h2>Spending behaviour profile</h2><span class="small muted">Based on your transactions. These are spending signals, not a judgement.</span></div>
-        <table><thead><tr><th>Indicator</th><th class="r">Value</th><th>Meaning</th><th>Level</th></tr></thead>
+        <div class="head"><h2>Spending habits</h2><span class="small muted">Worked out from your transactions</span></div>
+        <table><thead><tr><th></th><th class="r">Value</th><th>What it means</th><th>Level</th></tr></thead>
         <tbody>${rows.map(r => `<tr><td>${r[0]}</td><td class="r">${r[1]}</td><td class="ink2 small">${r[2]}</td><td><span class="tag">${r[3]}</span></td></tr>`).join('')}</tbody></table>
       </div>
       <div class="grid g2">
@@ -636,7 +639,7 @@
           ${rising.length ? `<table><thead><tr><th>Category</th><th class="r">Before</th><th class="r">After</th><th class="r">Change</th></tr></thead><tbody>${rising.map(c => `<tr><td>${esc(c.name)}</td><td class="r">${inr(c.h1)}</td><td class="r">${inr(c.h2)}</td><td class="r bad">▲ ${pct(c.change)}</td></tr>`).join('')}</tbody></table>` : '<p class="ok">✓ No category grew more than 20%.</p>'}
         </div>
         <div class="card">
-          <div class="head"><h2>Monthly category spikes</h2><span class="small muted">Months where a category ran above 2× its usual level</span></div>
+          <div class="head"><h2>Unusual months</h2><span class="small muted">Months where a category was more than double its usual amount</span></div>
           ${A.spikes.length ? `<table><thead><tr><th>Month</th><th>Category</th><th class="r">Spent</th><th class="r">Typical</th></tr></thead><tbody>${A.spikes.slice(0, 15).map(s => `<tr><td>${monthLabel(s.month)}</td><td>${esc(s.category)}</td><td class="r">${inr(s.amount)}</td><td class="r muted">${inr(s.typical)}</td></tr>`).join('')}</tbody></table>` : '<p class="ok">✓ No spikes.</p>'}
         </div>
       </div>
@@ -664,9 +667,9 @@
     el.innerHTML = `
       <div class="grid g2">
         <div class="card">
-          <div class="head"><h2>Savings levers</h2><span class="small muted">How much you'd cut from each discretionary category</span></div>
+          <div class="head"><h2>Cut back on</h2><span class="small muted">Drag to set how much less you'd spend in each category</span></div>
           <div id="sliders">${disc.map(c => `<div class="slider-row"><span>${esc(c.name)}<div class="small muted">${inr(c.monthlyAvg)}/mo</div></span><input type="range" min="0" max="100" step="5" value="${cutOf(c)}" data-cut="${esc(c.name)}"><span class="num" data-cutlbl="${esc(c.name)}">${cutOf(c)}%</span><span class="num r" data-cutamt="${esc(c.name)}">${inr(c.monthlyAvg * cutOf(c) / 100)}</span></div>`).join('')}</div>
-          <label class="chip" style="margin-top:10px"><input type="checkbox" id="dropFees" ${S.dropFees !== false ? 'checked' : ''}> Remove all avoidable fees & interest (${inr(feesMonthly)}/mo)</label>
+          <label class="chip" style="margin-top:10px"><input type="checkbox" id="dropFees" ${S.dropFees !== false ? 'checked' : ''}> Stop paying fees and interest (${inr(feesMonthly)}/mo)</label>
           <div class="grid g3" style="margin-top:14px">
             <label class="small ink2">Monthly take-home income (optional)<br><input type="number" id="income" min="0" step="1000" value="${S.income || ''}" placeholder="e.g. 120000" style="width:100%"></label>
             <label class="small ink2">Expected annual return %<br><input type="number" id="rate" min="0" max="30" step="0.5" value="${S.rate}" style="width:100%"></label>
@@ -676,12 +679,12 @@
         <div class="card" id="savingsOut"></div>
       </div>
       <div class="card">
-        <div class="head"><h2>What the redirected savings could grow to</h2>${legendHtml([['Value if invested', seriesColor(0)], ['Amount invested', seriesColor(1)]])}</div>
+        <div class="head"><h2>If you invested the savings</h2>${legendHtml([['Value if invested', seriesColor(0)], ['Amount invested', seriesColor(1)]])}</div>
         <div class="chart-box short"><canvas id="cFV"></canvas></div>
-        <p class="note">Assumes the monthly saving is invested at the start of each month and grows at the chosen annual rate, compounded monthly. Taxes and costs are ignored. Returns are not guaranteed. This is an illustration, not investment advice.</p>
+        <p class="note">Assumes the monthly saving is invested at the start of each month and grows at the chosen annual rate, compounded monthly. Taxes and costs are left out, and real returns go up and down, so treat this as a rough guide.</p>
       </div>
       <div class="card">
-        <div class="head"><h2>12-month improvement roadmap</h2></div>
+        <div class="head"><h2>A 12 month plan</h2></div>
         <ol class="ink2" style="margin:0;padding-left:20px;display:grid;gap:6px">${roadmap(A).map(x => `<li>${x}</li>`).join('')}</ol>
       </div>`;
     const update = () => {
@@ -689,7 +692,7 @@
       const fv = futureValue(monthly, (S.rate || 0) / 100, S.years || 10);
       const income = S.income || 0;
       $('#savingsOut').innerHTML = `
-        <div class="head"><h2>Impact</h2></div>
+        <div class="head"><h2>What you'd save</h2></div>
         <div class="grid g2">
           <div class="kpi"><div class="label">Monthly saving</div><div class="value">${inr(monthly)}</div><div class="sub">${inr(monthly * 12)} per year</div></div>
           <div class="kpi"><div class="label">Value after ${S.years} years</div><div class="value">${inrC(fv.value)}</div><div class="sub">invested ${inrC(fv.invested)} · growth ${inrC(fv.value - fv.invested)}</div></div>
@@ -727,8 +730,8 @@
     if (fees) r.push('<b>Month 2:</b> Call the banks and ask for annual/renewal-fee waivers, or check if you\'ve met the spend threshold for an automatic waiver.');
     const top = A.categories.filter(c => c.nature === 'discretionary')[0];
     if (top) r.push(`<b>Month 3:</b> Set a monthly cap for ${esc(top.name.toLowerCase())} (currently ${inr(top.monthlyAvg)}/mo). Try a 20% lower cap and check it against this dashboard every month.`);
-    r.push('<b>Month 3:</b> Start a monthly SIP for the amount you\'re saving, on the day after your salary arrives. That way the money is invested before it can be spent.');
-    r.push('<b>Month 4–6:</b> Build an emergency fund of 6 months of expenses (about ' + inr(A.avgMonthly * 6) + ' based on card spend alone) so emergencies never go on the card as revolving debt.');
+    r.push('<b>Month 3:</b> Start a monthly SIP for the amount you\'re saving, dated the day after your salary comes in, so it\'s invested before it gets spent.');
+    r.push('<b>Month 4–6:</b> Build an emergency fund of 6 months of expenses (about ' + inr(A.avgMonthly * 6) + ' based on card spend alone) so a surprise bill doesn\'t end up on a card you can\'t clear.');
     r.push('<b>Month 6:</b> Load new statements here and compare with this baseline: monthly spend, discretionary share, fees, and subscriptions.');
     r.push('<b>Month 9–12:</b> Review whether each card is worth keeping (Net benefit on the Cards tab). Close or downgrade any card that costs more than it returns. Raise your SIP with every income increase.');
     return r;
@@ -790,7 +793,7 @@
             const m = s.meta; let rec = '—';
             if (m.totalDue != null && m.openingBalance != null) { const diff = m.openingBalance + deb - cre - m.totalDue; rec = Math.abs(diff) < 2 ? '<span class="ok">✓</span>' : `<span class="bad" title="Difference ${inr(diff)}">⚠ off by ${inr(diff)}</span>`; }
             return `<tr><td class="small">${esc(s.card)}</td><td class="small">${esc(s.fileName)}</td><td>${dateLabel(m.statementDate)}</td><td class="r ${s.txns.length ? '' : 'bad'}">${s.txns.length}</td><td class="r">${inr(deb)}</td><td class="r">${inr(cre)}</td><td class="r">${inr(m.openingBalance)}</td><td class="r">${inr(m.totalDue)}</td><td>${rec}</td>
-              <td style="white-space:nowrap"><button class="btn" data-raw="${i}">Raw text</button> <button class="btn" data-anon="${i}">Copy anonymised layout</button> <button class="btn ghost" data-del="${i}" title="Remove this statement">✕</button></td></tr>`;
+              <td style="white-space:nowrap"><button class="btn" data-raw="${i}">${Icon('text')}Raw text</button> <button class="btn" data-anon="${i}">${Icon('copy')}Copy anonymised layout</button> <button class="btn ghost icon-only" data-del="${i}" title="Remove this statement" aria-label="Remove this statement">${Icon('x')}</button></td></tr>`;
           }).join('')}</tbody>
         </table></div>
       </div>
