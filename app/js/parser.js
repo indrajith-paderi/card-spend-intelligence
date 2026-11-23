@@ -4,7 +4,17 @@
 (function () {
   'use strict';
 
-  pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js';
+  let pdfReady = null;
+  function loadPdfJs() {
+    if (!pdfReady) pdfReady = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'vendor/pdf.min.js';
+      s.onload = () => { pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js'; resolve(); };
+      s.onerror = () => { pdfReady = null; reject(new Error('Could not load the PDF reader.')); };
+      document.head.appendChild(s);
+    });
+    return pdfReady;
+  }
 
   const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, sept: 8, oct: 9, nov: 10, dec: 11 };
   const AMOUNT_RE = /(?:\d{1,3}(?:,\d{2,3})+|\d+)\.\d{2}(?!\d)/g;
@@ -30,6 +40,7 @@
   /* ---------- PDF → lines ---------- */
 
   async function openPdf(data, password) {
+    await loadPdfJs();
     const task = pdfjsLib.getDocument({ data, password: password || '', isEvalSupported: false });
     return task.promise;
   }
