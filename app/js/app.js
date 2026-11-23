@@ -287,20 +287,42 @@
 
   /* ---------- data prep ---------- */
   function allTxns() {
-    const natures = state.settings.natures || {};
+    const S = state.settings, natures = S.natures || {}, aliases = S.merchantAliases || {}, perTxn = S.txnMerchants || {};
     Categoriser.setNatures(natures);
-    const key = memo.ver + '|' + JSON.stringify(state.overrides) + '|' + JSON.stringify(natures);
+    const key = memo.ver + '|' + JSON.stringify([state.overrides, natures, aliases, perTxn]);
     if (memo.txKey === key) return memo.txns;
     const out = [];
     for (const s of state.statements) for (const raw of s.txns) {
       const t = Categoriser.normaliseTxn(raw);
       const c = Categoriser.categorise(t, state.overrides);
-      out.push(Object.assign({}, t, c, { card: s.card, nature: Categoriser.natureOf(c.category) }));
+      const r = Object.assign({}, t, c, { card: s.card, statementId: s.id, origMerchant: c.merchant });
+      const renamed = perTxn[t.id] || aliases[c.merchant];
+      if (renamed && renamed !== c.merchant) {
+        r.merchant = renamed;
+        r.renamed = perTxn[t.id] ? 'one' : 'all';
+        if (t.type === 'debit') {
+          if (state.overrides[renamed]) { r.category = state.overrides[renamed]; r.overridden = true; } else r.inherit = true;
+        }
+      }
+      out.push(r);
+    }
+    const votes = new Map();
+    for (const r of out) if (!r.renamed && r.type === 'debit') {
+      const m = votes.get(r.merchant) || new Map();
+      m.set(r.category, (m.get(r.category) || 0) + 1);
+      votes.set(r.merchant, m);
+    }
+    for (const r of out) {
+      if (r.inherit) { const m = votes.get(r.merchant); if (m) r.category = [...m].sort((x, y) => y[1] - x[1])[0][0]; delete r.inherit; }
+      r.nature = Categoriser.natureOf(r.category);
     }
     out.sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''));
+    memo.bySt = new Map();
+    for (const r of out) { if (!memo.bySt.has(r.statementId)) memo.bySt.set(r.statementId, []); memo.bySt.get(r.statementId).push(r); }
     memo.txKey = key; memo.txns = out;
     return out;
   }
+
   function cardOrder() { return [...new Set(state.statements.map(s => s.card))].sort(); }
   function cardColor(card) { return seriesColor(cardOrder().indexOf(card)); }
 
@@ -315,7 +337,7 @@
     return memo.F = {
       txns: txns.filter(t => okCard(t.card) && okDate(t.date)),
       statements: state.statements.filter(s => okCard(s.card)).map(s => Object.assign({}, s, {
-        txns: s.txns.map(Categoriser.normaliseTxn).map(t => Object.assign({}, t, Categoriser.categorise(t, state.overrides))),
+        txns: memo.bySt.get(s.id) || [],
       })),
       all: txns,
     };
@@ -704,6 +726,50 @@
     });
   }
 
+  function wireMerchantEdit(root, F) {
+    const byId = new Map(F.txns.map(t => [t.id, t]));
+    root.addEventListener('click', e => {
+      const b = e.target.closest('.mbtn');
+      if (!b) return;
+      const t = byId.get(b.dataset.id);
+      if (!t) return;
+      const all = allTxns();
+      const sameOrig = all.filter(x => x.origMerchant === t.origMerchant).length;
+      const names = [...new Set(all.map(x => x.merchant))].sort((x, y) => x.localeCompare(y));
+      const S = state.settings;
+      const aliasActive = (S.merchantAliases || {})[t.origMerchant];
+      const cell = b.parentElement;
+      cell.innerHTML = `<form class="medit">
+          <input type="text" list="merchList" value="${esc(t.merchant)}" required aria-label="Merchant name">
+          <datalist id="merchList">${names.map(n => `<option value="${esc(n)}">`).join('')}</datalist>
+          <label class="small ink2"><input type="checkbox" ${t.renamed !== 'one' ? 'checked' : ''}> All ${sameOrig} transaction${sameOrig > 1 ? 's' : ''} from ${esc(t.origMerchant)}</label>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn primary" type="submit">Save</button>
+            <button class="btn ghost" type="button" data-act="cancel">Cancel</button>
+            ${t.renamed || aliasActive ? `<button class="btn ghost" type="button" data-act="reset">Use ${esc(t.origMerchant)}</button>` : ''}
+          </div>
+        </form>`;
+      const form = cell.querySelector('form'), input = form.querySelector('input[type=text]'), allBox = form.querySelector('input[type=checkbox]');
+      input.focus(); input.select();
+      const commit = name => {
+        S.merchantAliases = Object.assign({}, S.merchantAliases);
+        S.txnMerchants = Object.assign({}, S.txnMerchants);
+        const orig = t.origMerchant;
+        if (allBox.checked) {
+          if (name === orig) delete S.merchantAliases[orig]; else S.merchantAliases[orig] = name;
+          for (const x of all) if (x.origMerchant === orig) delete S.txnMerchants[x.id];
+        } else if (name === orig && !S.merchantAliases[orig]) delete S.txnMerchants[t.id];
+        else S.txnMerchants[t.id] = name;
+        saveSettings();
+        render();
+      };
+      form.onsubmit = ev => { ev.preventDefault(); const name = input.value.trim().replace(/\s+/g, ' '); if (name) commit(name); };
+      form.querySelector('[data-act=cancel]').onclick = () => render();
+      const reset = form.querySelector('[data-act=reset]');
+      if (reset) reset.onclick = () => commit(t.origMerchant);
+    });
+  }
+
   let merchQuery = '';
   function viewMerchants(A) {
     const el = $('#tab-merchants');
@@ -1007,10 +1073,10 @@
             <select id="ts"><option value="date-desc">Newest first</option><option value="date-asc">Oldest first</option><option value="amount-desc">Largest first</option><option value="amount-asc">Smallest first</option></select>
           </div>
         </div>
-        <p class="small muted" style="margin-bottom:8px">${list.length} transactions · net ${inr(tot)}${list.length > shown.length ? ` · showing ${shown.length}` : ''}. To change a category, use the Merchants tab.</p>
+        <p class="small muted" style="margin-bottom:8px">${list.length} transactions · net ${inr(tot)}${list.length > shown.length ? ` · showing ${shown.length}` : ''}. Click a merchant to rename it or move the transaction to another merchant. Categories are changed on the Merchants tab.</p>
         <div class="table-wrap" style="max-height:640px"><table>
           <thead><tr><th>Date</th><th>Description</th><th>Merchant</th><th>Category</th><th>Card</th><th class="r">Amount</th></tr></thead>
-          <tbody>${shown.map(t => `<tr><td class="num">${dateLabel(t.date)}${t.time ? `<div class="small muted">${t.time}</div>` : ''}</td><td class="small">${esc(t.description)}</td><td>${esc(t.merchant)}</td>
+          <tbody>${shown.map(t => `<tr><td class="num">${dateLabel(t.date)}${t.time ? `<div class="small muted">${t.time}</div>` : ''}</td><td class="small">${esc(t.description)}</td><td><button class="mbtn${t.renamed ? ' edited' : ''}" data-id="${esc(t.id)}" title="${t.renamed ? `Changed from ${esc(t.origMerchant)}. Click to edit.` : 'Click to change the merchant'}">${esc(t.merchant)}${t.renamed ? ' ✎' : ''}</button></td>
             <td><span class="tag">${esc(t.category)}</span></td>
             <td><i class="swatch" style="background:${colorOf[t.card]}" title="${esc(t.card)}"></i></td>
             <td class="r ${t.type === 'credit' ? 'ok' : ''}">${t.type === 'credit' ? '+' : ''}${fmtINR(t.amount, { decimals: true })}</td></tr>`).join('')}</tbody>
@@ -1018,6 +1084,7 @@
         ${list.length > shown.length ? `<div style="text-align:center;margin-top:12px"><button class="btn" id="txMore">Show ${Math.min(500, list.length - shown.length)} more</button></div>` : ''}
       </div>`;
     $('#ts').value = txnSort;
+    wireMerchantEdit(el.querySelector('tbody'), F);
     if ($('#txMore')) $('#txMore').onclick = () => { txnLimit += 500; viewTransactions(filtered()); };
     let deb; $('#tq').oninput = e => { clearTimeout(deb); deb = setTimeout(() => { txnQuery = e.target.value; txnLimit = 300; viewTransactions(filtered()); const i = $('#tq'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }, 200); };
     $('#tc').onchange = e => { txnCat = e.target.value; viewTransactions(filtered()); };
