@@ -69,7 +69,7 @@
       const h2 = sum(list.filter(t => secondHalf.has(monthOf(t.date))).map(t => t.amount));
       const byMonth = months.map(m => sum(list.filter(t => monthOf(t.date) === m).map(t => t.amount)));
       return { name, total, count: list.length, share: total / (totalSpend || 1), monthlyAvg: total / nMonths, avgTicket: total / list.length,
-        nature: (Categoriser.CATEGORIES[name] || {}).nature || 'discretionary', change: half >= 2 && h1 > 0 ? (h2 - h1) / h1 : null, h1, h2, byMonth };
+        nature: Categoriser.natureOf(name) || 'discretionary', change: half >= 2 && h1 > 0 ? (h2 - h1) / h1 : null, h1, h2, byMonth };
     }).sort((a, b) => b.total - a.total);
     let acc = 0; categories.forEach(c => { acc += c.share; c.cumShare = acc; });
     const paretoCats = categories.findIndex(c => c.cumShare >= 0.8) + 1;
