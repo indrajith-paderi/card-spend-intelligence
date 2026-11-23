@@ -36,7 +36,7 @@ All screenshots use made up demo data.
 
 ![Savings](docs/screenshots/savings.png)
 
-**Transactions.** Every transaction, searchable and sortable. You can export to CSV.
+**Transactions.** Every transaction, searchable and sortable. Click a merchant to rename it, or to move a payment to another merchant or a new one, for that one transaction or for all of them. You can export to CSV.
 
 ![Transactions](docs/screenshots/transactions.png)
 
