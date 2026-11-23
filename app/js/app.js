@@ -2,6 +2,7 @@
 (function () {
   'use strict';
   const { analyse, fmtINR, futureValue, FEE_CATS, isSpend } = Analysis;
+  const IS_WIN = /win/i.test((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '');
   const $ = s => document.querySelector(s);
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const pct = (v, d = 0) => v == null || isNaN(v) ? '—' : (v * 100).toFixed(d) + '%';
@@ -219,8 +220,8 @@
       <div class="card">
         <div class="head"><h2>Add a folder</h2></div>
         <form id="addFolder" style="display:grid;gap:10px;max-width:760px">
-          <label class="small ink2">Folder path <span class="muted">(in File Explorer: right-click the folder → Copy as path)</span><br>
-            <input type="text" id="fPath" placeholder="e.g. D:\\Statements" style="width:100%" required></label>
+          <label class="small ink2">Folder path <span class="muted">${IS_WIN ? '(in File Explorer: right-click the folder → Copy as path)' : '(full path, ~ works too)'}</span><br>
+            <input type="text" id="fPath" placeholder="e.g. ${IS_WIN ? 'D:\\Statements' : '~/Statements'}" style="width:100%" required></label>
           <label class="chip" style="width:fit-content"><input type="checkbox" id="fParent" checked> This folder has one sub-folder per card (each sub-folder name becomes the card name)</label>
           <label class="small ink2" id="fCardRow" style="display:none">Card name<br><input type="text" id="fCard" placeholder="defaults to the folder name" style="width:100%;max-width:360px"></label>
           <div class="error" id="fErr"></div>
