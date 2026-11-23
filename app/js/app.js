@@ -276,7 +276,8 @@
   /* ---------- data prep ---------- */
   function allTxns() {
     const out = [];
-    for (const s of state.statements) for (const t of s.txns) {
+    for (const s of state.statements) for (const raw of s.txns) {
+      const t = Categoriser.normaliseTxn(raw);
       const c = Categoriser.categorise(t, state.overrides);
       out.push(Object.assign({}, t, c, { card: s.card, nature: (Categoriser.CATEGORIES[c.category] || {}).nature }));
     }
@@ -293,7 +294,7 @@
     return {
       txns: txns.filter(t => okCard(t.card) && okDate(t.date)),
       statements: state.statements.filter(s => okCard(s.card)).map(s => Object.assign({}, s, {
-        txns: s.txns.map(t => Object.assign({}, t, Categoriser.categorise(t, state.overrides))),
+        txns: s.txns.map(Categoriser.normaliseTxn).map(t => Object.assign({}, t, Categoriser.categorise(t, state.overrides))),
       })),
       all: txns,
     };
@@ -363,7 +364,9 @@
     const scales = {};
     for (const k of Object.keys(opts.scales || { x: {}, y: {} })) scales[k] = Object.assign({}, scaleBase, (opts.scales || {})[k] || {});
     if (scales.x && !(opts.scales && opts.scales.x && opts.scales.x.grid)) scales.x.grid = { display: false };
-    const merged = Object.assign({}, base, opts, { scales, plugins: Object.assign({}, base.plugins, opts.plugins || {}, { tooltip: Object.assign({}, base.plugins.tooltip, (opts.plugins || {}).tooltip || {}) }) });
+    const optTip = (opts.plugins || {}).tooltip || {};
+    const tooltip = Object.assign({}, base.plugins.tooltip, optTip, { callbacks: Object.assign({}, base.plugins.tooltip.callbacks, optTip.callbacks || {}) });
+    const merged = Object.assign({}, base, opts, { scales, plugins: Object.assign({}, base.plugins, opts.plugins || {}, { tooltip }) });
     if (opts.plugins && opts.plugins.legend) merged.plugins.legend = Object.assign({}, base.plugins.legend, opts.plugins.legend, { labels: Object.assign({}, base.plugins.legend.labels, (opts.plugins.legend.labels || {})) });
     state.charts[id] = new Chart(el, { type: config.type, data: config.data, options: merged });
   }
@@ -476,7 +479,7 @@
       options: { scales: { x: {}, y: { ticks: { callback: v => inrC(v) } } } },
     });
     chart('cDow', { type: 'bar', data: { labels: A.dow.map(d => d.name), datasets: [barDs('Avg spend per day', A.dow.map(d => d.perDay), seriesColor(0))] }, options: { scales: { x: {}, y: { ticks: { callback: v => inrC(v) } } } } });
-    chart('cDom', { type: 'bar', data: { labels: A.dom.map(d => d.day), datasets: [barDs('Total spend', A.dom.map(d => d.total), seriesColor(0), { maxBarThickness: 14 })] }, options: { scales: { x: {}, y: { ticks: { callback: v => inrC(v) } } } } });
+    chart('cDom', { type: 'bar', data: { labels: A.dom.map(d => d.day), datasets: [barDs('Total spend', A.dom.map(d => d.total), seriesColor(0), { maxBarThickness: 14 })] }, options: { scales: { x: { ticks: { maxRotation: 0, autoSkipPadding: 6 } }, y: { ticks: { callback: v => inrC(v) } } } } });
     if (A.timedCount) chart('cHour', { type: 'bar', _fmt: v => v + ' txns', data: { labels: A.hours.map(h => String(h.hour).padStart(2, '0')), datasets: [barDs('Transactions', A.hours.map(h => h.count), seriesColor(0), { maxBarThickness: 18 })] }, options: { scales: { x: {}, y: {} } } });
   }
 
