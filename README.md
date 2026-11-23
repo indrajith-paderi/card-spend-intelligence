@@ -14,11 +14,11 @@ All screenshots use made up demo data.
 
 **Overview.** Total and monthly spend split by card, the categories that eat most of your money, and a short list of findings like late fees, interest, duplicate charges or spending that keeps creeping up.
 
-**Spending.** A calendar of daily spending for the last year, then every category with its share, average ticket size and how it changed over the period. Also spend by weekday, by day of the month (useful for spotting the post-salary splurge) and by hour, if your bank prints transaction times.
+**Spending.** A calendar of daily spending for the last year, then every category with its share, average ticket size and how it changed over the period. You can mark any category as essential or discretionary and the rest of the dashboard follows. Also spend by weekday, by day of the month (useful for spotting the post-salary splurge) and by hour, if your bank prints transaction times.
 
 ![Spending](docs/screenshots/spending.png)
 
-**Merchants.** Merchant names get cleaned up, so `SWIGGY BANGALORE`, `SWIGGY LIMITED` and friends all count as Swiggy. The list is ranked with ABC classes, so you can see the handful of places that take 80% of your money.
+**Merchants.** Merchant names get cleaned up, so `SWIGGY BANGALORE`, `SWIGGY LIMITED` and friends all count as Swiggy. The list is ranked with ABC classes, so you can see the handful of places that take 80% of your money. If a merchant lands in the wrong category, click the category and pick another. Every transaction from that merchant follows, including future statements.
 
 **Cards.** A side by side comparison of your cards: spend, cashback, reward points, fees, interest and the net benefit of each card. It also tracks credit utilization per statement and checks whether every bill was paid in full.
 
@@ -36,7 +36,7 @@ All screenshots use made up demo data.
 
 ![Savings](docs/screenshots/savings.png)
 
-**Transactions.** Every transaction, searchable. If a merchant lands in the wrong category, change it once and it applies to all its transactions. You can export to CSV.
+**Transactions.** Every transaction, searchable and sortable. You can export to CSV.
 
 ![Transactions](docs/screenshots/transactions.png)
 
