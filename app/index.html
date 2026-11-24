@@ -22,13 +22,18 @@
     <p id="subtitle">Runs locally. Statements are decrypted in this browser only.</p>
   </div>
   <div class="actions-row">
-    <button class="btn" id="scanBtn" title="Look for new PDFs in your statement folders and import them"><i data-icon="scan"></i>Scan folders</button>
-    <label class="btn" title="Import individual PDF files that aren't in a folder">
+    <button class="btn ghost" id="scanBtn" title="Look for new PDFs in your statement folders and import them"><i data-icon="scan"></i>Scan folders</button>
+    <button class="btn ghost" id="exportCsv" disabled><i data-icon="download"></i>Export CSV</button>
+    <label class="btn primary" id="addPdfs" title="Import individual PDF files that aren't in a folder">
       <i data-icon="filePlus"></i>Add PDFs<input type="file" id="pickFiles" accept="application/pdf,.pdf" multiple>
     </label>
-    <button class="btn ghost" id="exportCsv" disabled><i data-icon="download"></i>Export CSV</button>
-    <button class="btn ghost" id="clearData"><i data-icon="trash"></i>Clear data</button>
     <button class="btn ghost icon-only" id="themeToggle" title="Switch between light and dark" aria-label="Switch between light and dark"><i data-icon="moon" class="if-light"></i><i data-icon="sun" class="if-dark"></i></button>
+    <div class="menu">
+      <button class="btn ghost icon-only" id="moreBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="moreMenu" aria-label="More actions" title="More actions"><i data-icon="more"></i></button>
+      <div class="pop menu-list" id="moreMenu" role="menu" hidden>
+        <button type="button" role="menuitem" class="danger-item" id="clearData"><i data-icon="trash"></i>Clear data…</button>
+      </div>
+    </div>
   </div>
 </header>
 <div class="progress" id="progress" role="status"></div>
