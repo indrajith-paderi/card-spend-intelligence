@@ -107,12 +107,17 @@
 
     const amounts = [...rest.matchAll(AMOUNT_RE)];
     if (!amounts.length) return null;
-    const last = amounts[amounts.length - 1];
+    // Some layouts (IndusInd) print a side panel level with the first row of a section, so that row picks
+    // up a trailing "Statement Date" or the panel's own "823.02 DR". When amounts carry CR/DR markers, the
+    // first marked amount is the transaction's, and text after it in a separate column is the panel.
+    const marked = amounts.filter(m => /^\s*(cr|dr)\b/i.test(rest.slice(m.index + m[0].length)));
+    const last = marked.length ? marked[0] : amounts[amounts.length - 1];
     const amount = toNumber(last[0]);
     if (!(amount > 0)) return null;
     const before = rest.slice(0, last.index);
     const after = rest.slice(last.index + last[0].length);
-    if (after.replace(/\b(cr|dr|c|d)\b/ig, '').replace(/[^A-Za-z0-9]/g, '').length > 3) return null; // amount must end the row
+    const sidePanel = marked.length > 0 && /^\s{2,}\S/.test(after.replace(/^\s*(cr|dr)\b/i, ''));
+    if (!sidePanel && after.replace(/\b(cr|dr|c|d)\b/ig, '').replace(/[^A-Za-z0-9]/g, '').length > 3) return null; // amount must end the row
 
     let credit = /^\s*(cr|c)\b/i.test(after);
     if (/\+\s*(₹|Rs\.?|INR|C|`)?\s*$/i.test(before)) credit = true;
