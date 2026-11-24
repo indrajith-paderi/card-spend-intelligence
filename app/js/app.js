@@ -10,7 +10,7 @@
   const inr = v => fmtINR(v);
   const inrC = v => fmtINR(v, { compact: true });
   const monthLabel = m => { const [y, mo] = m.split('-'); return new Date(Date.UTC(+y, +mo - 1, 1)).toLocaleString('en-IN', { month: 'short', year: '2-digit', timeZone: 'UTC' }); };
-  const dateLabel = d => d ? new Date(d + 'T00:00:00Z').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '—';
+  const dateLabel = d => d ? new Date(d + 'T00:00:00Z').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }).replace(/ /g, ' ') : '—';
 
   /* ---------- storage ----------
    * Statements, category edits and settings live in the local SQLite database (via serve.py).
@@ -169,8 +169,32 @@
   function updateScanButton() {
     const n = pendingCount();
     $('#scanBtn').innerHTML = Icon(n ? 'download' : 'scan') + (n ? `Import ${n} new statement${n > 1 ? 's' : ''}` : 'Scan folders');
+    // New statements waiting is the one moment Scan outranks Add PDFs.
     $('#scanBtn').classList.toggle('primary', n > 0);
+    $('#scanBtn').classList.toggle('ghost', !n);
+    $('#addPdfs').classList.toggle('primary', !n);
   }
+
+  /* ---------- popovers (header menu, date range) ---------- */
+  function setPop(btn, open) {
+    const panel = document.getElementById(btn.getAttribute('aria-controls'));
+    if (!panel) return;
+    btn.setAttribute('aria-expanded', String(open));
+    panel.hidden = !open;
+  }
+  function closePops(except) {
+    document.querySelectorAll('[aria-controls][aria-expanded="true"]').forEach(b => { if (b !== except) setPop(b, false); });
+  }
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('[aria-controls][aria-expanded]');
+    if (btn) { closePops(btn); setPop(btn, btn.getAttribute('aria-expanded') !== 'true'); return; }
+    if (!e.target.closest('.pop')) closePops();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    const open = document.querySelector('[aria-controls][aria-expanded="true"]');
+    if (open) { setPop(open, false); open.focus(); }
+  });
   $('#scanBtn').addEventListener('click', () => { if (state.folders.length) scan({ import: true }); else { state.tab = 'folders'; render(); } });
 
   ['#pickFiles', '#pickFiles2'].forEach(id => $(id).addEventListener('change', e => {
@@ -185,7 +209,7 @@
     importItems(items);
   }));
 
-  $('#clearData').addEventListener('click', () => $('#clearDialog').showModal());
+  $('#clearData').addEventListener('click', () => { closePops(); $('#clearDialog').showModal(); });
   $('#clearCancel').onclick = () => $('#clearDialog').close();
   async function wipe(everything) {
     $('#clearDialog').close();
@@ -364,26 +388,46 @@
     const cards = cardOrder();
     const months = Analysis.monthRange(all[0].date.slice(0, 7), all[all.length - 1].date.slice(0, 7));
     const f = state.filter;
+    const first = months[0], last = months[months.length - 1];
+    const presets = [['3', '3M', 'Last 3 months'], ['6', '6M', 'Last 6 months'], ['12', '12M', 'Last 12 months'], ['all', 'All', 'All time']];
+    const fromOf = v => v === 'all' ? null : months[Math.max(0, months.length - +v)];
+    const active = f.to ? null : !f.from ? 'all' : (presets.find(([v]) => v !== 'all' && fromOf(v) === f.from) || [])[0];
+    const span = `${monthLabel(f.from || first)} – ${monthLabel(f.to || last)}`;
     const opt = (m, sel) => `<option value="${m}" ${sel === m ? 'selected' : ''}>${monthLabel(m)}</option>`;
     el.innerHTML = `
-      ${cards.map(c => `<label class="chip"><input type="checkbox" data-card="${esc(c)}" ${!f.cards || f.cards.includes(c) ? 'checked' : ''}><span class="swatch" style="background:${cardColor(c)}"></span>${esc(c)}</label>`).join('')}
-      <span class="sep"></span>
-      <label class="small ink2">From <select id="fFrom"><option value="">Start</option>${months.map(m => opt(m, f.from)).join('')}</select></label>
-      <label class="small ink2">To <select id="fTo"><option value="">Latest</option>${months.map(m => opt(m, f.to)).join('')}</select></label>
-      <select id="fPreset"><option value="">Quick range…</option><option value="3">Last 3 months</option><option value="6">Last 6 months</option><option value="12">Last 12 months</option><option value="all">All time</option></select>`;
+      <div class="chips">${cards.map(c => `<label class="chip" title="${esc(c)}"><input type="checkbox" data-card="${esc(c)}" ${!f.cards || f.cards.includes(c) ? 'checked' : ''}><span class="swatch" style="background:${cardColor(c)}"></span><span class="chip-name">${esc(shortCard(c))}</span></label>`).join('')}</div>
+      <div class="range">
+        <button type="button" class="btn range-btn" id="rangeBtn" aria-haspopup="dialog" aria-expanded="false" aria-controls="rangePop">${Icon('calendar')}<span>${active ? `<b>${presets.find(p => p[0] === active)[2]}</b> · ` : ''}${span}</span>${Icon('chevron')}</button>
+        <div class="pop range-pop" id="rangePop" role="dialog" aria-label="Date range" hidden>
+          <div class="presets" role="group" aria-label="Quick ranges">${presets.map(([v, l, t]) => `<button type="button" data-preset="${v}" aria-pressed="${active === v}" title="${t}">${l}</button>`).join('')}</div>
+          <div class="range-custom">
+            <label>From<select id="fFrom">${months.map(m => opt(m, f.from || first)).join('')}</select></label>
+            <label>To<select id="fTo">${months.map(m => opt(m, f.to || last)).join('')}</select></label>
+          </div>
+        </div>
+      </div>`;
     el.querySelectorAll('input[data-card]').forEach(cb => cb.onchange = () => {
       const sel = [...el.querySelectorAll('input[data-card]:checked')].map(x => x.dataset.card);
       state.filter.cards = sel.length === cards.length ? null : sel; render();
     });
-    $('#fFrom').onchange = e => { state.filter.from = e.target.value || null; render(); };
-    $('#fTo').onchange = e => { state.filter.to = e.target.value || null; render(); };
-    $('#fPreset').onchange = e => {
-      const v = e.target.value; if (!v) return;
-      if (v === 'all') { state.filter.from = state.filter.to = null; }
-      else { state.filter.to = null; state.filter.from = months[Math.max(0, months.length - +v)]; }
+    el.querySelectorAll('[data-preset]').forEach(b => b.onclick = () => {
+      state.filter.from = fromOf(b.dataset.preset); state.filter.to = null;
+      render(); $('#rangeBtn').focus();
+    });
+    const setRange = (which, v) => {
+      state.filter[which] = v === (which === 'from' ? first : last) ? null : v;
+      const a = state.filter.from || first, b = state.filter.to || last;
+      if (a > b) { state.filter.from = b === first ? null : b; state.filter.to = a === last ? null : a; }
       render();
+      setPop($('#rangeBtn'), true); // keep the picker open while adjusting a custom range
+      $(which === 'from' ? '#fFrom' : '#fTo').focus();
     };
+    $('#fFrom').onchange = e => setRange('from', e.target.value);
+    $('#fTo').onchange = e => setRange('to', e.target.value);
   }
+
+  // "CRED IndusInd Bank RuPay Credit Card" -> "CRED IndusInd". The full name stays in tooltips.
+  const shortCard = name => name.replace(/\b(bank|rupay|master ?card|visa|amex|credit|debit|card)\b/gi, '').replace(/\s+/g, ' ').trim() || name;
 
   /* ---------- charts ---------- */
   const tipEl = document.getElementById('tip');
@@ -397,6 +441,23 @@
     tipEl.style.transform = `translate(${Math.max(8, left)}px, ${Math.max(8, top)}px)`;
   }
   function hideTip() { tipEl.classList.remove('on'); }
+  // Plain-text tooltips for [data-tip] (info icons) and [data-tip-trunc] (shown only when the text is cut off).
+  const tipTarget = e => {
+    const el = e.target.closest && e.target.closest('[data-tip],[data-tip-trunc]');
+    if (!el) return null;
+    if (el.hasAttribute('data-tip-trunc') && el.scrollWidth <= el.clientWidth) return null;
+    return el;
+  };
+  const showTextTip = el => {
+    const r = el.getBoundingClientRect();
+    showTip(`<div class="tt">${esc(el.dataset.tip || el.dataset.tipTrunc)}</div>`, r.left, r.bottom - 6);
+  };
+  document.addEventListener('pointerover', e => { const el = tipTarget(e); if (el) showTextTip(el); });
+  document.addEventListener('pointerout', e => { if (tipTarget(e)) hideTip(); });
+  document.addEventListener('focusin', e => { const el = tipTarget(e); if (el) showTextTip(el); });
+  document.addEventListener('focusout', e => { if (tipTarget(e)) hideTip(); });
+  new ResizeObserver(([e]) => document.documentElement.style.setProperty('--hdr-h', e.target.offsetHeight + 'px')).observe($('header.top'));
+
   const tipRow = (color, value, name) => `<div class="r"><i style="background:${color}"></i><b>${value}</b><span>${esc(name)}</span></div>`;
 
   function externalTip(fmt, axisKey, footer) {
@@ -492,15 +553,15 @@
     pointHoverBorderWidth: 2, pointHoverBorderColor: css('--surface'), borderCapStyle: 'round', borderJoinStyle: 'round', tension: 0,
   }, extra || {});
 
-  function legendHtml(items, kind) { return `<div class="legend">${items.map(([l, c]) => `<span><i class="${kind === 'line' ? 'line' : 'swatch'}" style="background:${c}"></i>${esc(l)}</span>`).join('')}</div>`; }
+  function legendHtml(items, kind) { return `<div class="legend">${items.map(([l, c, full]) => `<span${full && full !== l ? ` data-tip="${esc(full)}"` : ''}><i class="${kind === 'line' ? 'line' : 'swatch'}" style="background:${c}"></i>${esc(l)}</span>`).join('')}</div>`; }
 
   function spark(values) {
-    const w = 84, h = 34, n = values.length;
+    const w = 240, h = 32, n = values.length;
     if (n < 2) return '';
     const max = Math.max(...values), min = Math.min(0, ...values);
-    const x = i => 2 + (i / (n - 1)) * (w - 6), y = v => h - 3 - ((v - min) / (max - min || 1)) * (h - 8);
+    const x = i => (i / (n - 1)) * w, y = v => h - 2 - ((v - min) / (max - min || 1)) * (h - 6);
     const d = values.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join('');
-    return `<svg class="spark" viewBox="0 0 ${w} ${h}" aria-hidden="true"><path d="${d}L${x(n - 1).toFixed(1)} ${h}L${x(0).toFixed(1)} ${h}Z" fill="var(--accent)" opacity=".08"/><path d="${d}" fill="none" stroke="var(--muted)" stroke-opacity=".6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${x(n - 1).toFixed(1)}" cy="${y(values[n - 1]).toFixed(1)}" r="4" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/></svg>`;
+    return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><path d="${d}L${w} ${h}L0 ${h}Z" fill="var(--bar)" opacity=".1"/><path d="${d}" fill="none" stroke="var(--bar)" stroke-width="1.75" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>`;
   }
 
   function kpi(label, value, sub, o) {
@@ -509,14 +570,14 @@
     if (o.delta != null && isFinite(o.delta)) {
       const up = o.delta > 0, flat = Math.abs(o.delta) < 0.005;
       const cls = flat ? '' : (up === !!o.upIsGood ? 'good' : 'bad');
-      d = `<span class="delta ${cls}">${flat ? '' : up ? '▲ ' : '▼ '}${pct(Math.abs(o.delta), 1)}<span style="font-weight:400;color:var(--muted)">&nbsp;${o.deltaLabel || ''}</span></span>`;
+      d = `<div class="delta-text ${cls}">${flat ? `About the same as ${o.deltaLabel}` : `${pct(Math.abs(o.delta), 1)} ${up ? 'higher' : 'lower'} than ${o.deltaLabel}`}</div>`;
     }
-    return `<div class="card kpi${o.hero ? ' hero' : ''}"><div class="label">${label}</div><div class="row"><div><div class="value">${value}</div>${d}</div>${o.spark ? spark(o.spark) : ''}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`;
+    return `<div class="card kpi${o.hero ? ' hero' : ''}"><div class="label">${label}</div><div class="value">${value}</div>${d}${o.spark ? spark(o.spark) : ''}${sub ? `<div class="sub">${sub}</div>` : ''}</div>`;
   }
 
   function barList(rows, color) {
     const max = Math.max(...rows.map(r => r.value), 1);
-    return `<div class="bars">${rows.map(r => `<div class="b"><span class="n" title="${esc(r.name)}">${esc(r.name)}</span><span class="v">${inr(r.value)}${r.note ? `<small>${r.note}</small>` : ''}</span><div class="track"><div class="fill" style="width:${(r.value / max * 100).toFixed(1)}%;background:${r.color || color || 'var(--s1)'}"></div></div></div>`).join('')}</div>`;
+    return `<div class="bars">${rows.map(r => `<div class="b"><span class="n" data-tip-trunc="${esc(r.name)}">${esc(r.name)}</span><span class="v">${inr(r.value)}${r.note ? `<small>${r.note}</small>` : ''}</span><div class="track"><div class="fill" style="width:${(r.value / max * 100).toFixed(1)}%;background:${r.color || color || 'var(--bar)'}"></div></div></div>`).join('')}</div>`;
   }
 
   function calendar(txns) {
@@ -555,6 +616,7 @@
   function wireCalendar() {
     const svg = document.getElementById('calSvg');
     if (!svg) return;
+    svg.parentElement.scrollLeft = svg.parentElement.scrollWidth; // narrow screens open on the latest weeks
     svg.addEventListener('pointermove', e => {
       const r = e.target.closest('rect');
       if (!r) { hideTip(); return; }
@@ -567,34 +629,43 @@
   /* ---------- insight generation ---------- */
   function insights(A) {
     const out = [];
-    const add = (sev, html) => out.push({ sev, html });
+    const add = (sev, html, link) => out.push({ sev, html, link });
     const B = A.behaviour;
     const interest = A.feeGroups.find(g => g.name === 'Interest & finance charges');
     const late = A.feeGroups.find(g => g.name === 'Late payment fees');
-    if (interest) add('critical', `<b>${inr(interest.total)} paid in interest</b>, about ${inr(interest.annual)} a year at this rate. Banks only charge interest when a bill isn't paid in full, so paying the total due every month takes this to zero.`);
-    if (late) add('critical', `<b>${late.count} late payment fee${late.count > 1 ? 's' : ''}, ${inr(late.total)} in total.</b> An auto-debit for the full amount on each card stops this from happening again and keeps your credit score safe.`);
+    if (interest) add('critical', `<b>${inr(interest.total)} paid in interest</b>, about ${inr(interest.annual)} a year at this rate. Banks only charge interest when a bill isn't paid in full, so paying the total due every month takes this to zero.`, ['View fees', { tab: 'leakage' }]);
+    if (late) add('critical', `<b>${late.count} late payment fee${late.count > 1 ? 's' : ''}, ${inr(late.total)} in total.</b> An auto-debit for the full amount on each card stops this from happening again and keeps your credit score safe.`, ['View fees', { tab: 'leakage' }]);
     if (A.cashAdv.length) add('critical', `<b>${A.cashAdv.length} cash withdrawal${A.cashAdv.length > 1 ? 's' : ''} on a credit card, ${inr(A.cashAdv.reduce((s, t) => s + t.amount, 0))}.</b> Cash from a credit card is charged interest from the same day, plus a fee.`);
     const shortfalls = A.cardStats.flatMap(c => c.shortfalls.map(s => ({ ...s, card: c.card })));
-    if (shortfalls.length) add('serious', `<b>${shortfalls.length} statement${shortfalls.length > 1 ? 's were' : ' was'} not paid in full</b> before the next one. The details are on the Cards tab. If you paid it some other way the statements don't show, you can ignore this.`);
+    if (shortfalls.length) add('serious', `<b>${shortfalls.length} statement${shortfalls.length > 1 ? 's were' : ' was'} not paid in full</b> before the next one. If you paid it some other way the statements don't show, you can ignore this.`, ['View on Cards', { tab: 'cards' }]);
     const otherFees = A.feeGroups.filter(g => !['Interest & finance charges', 'Late payment fees'].includes(g.name));
     const otherFeeTotal = otherFees.reduce((s, g) => s + g.total, 0);
-    if (otherFeeTotal > 0) add('serious', `<b>${inr(otherFeeTotal)} in other card charges:</b> ${otherFees.map(g => `${g.name.toLowerCase().replace('gst', 'GST')} ${inr(g.total)}`).join(', ')}. Most banks drop the annual fee if you ask, or once you spend above a set amount in the year.`);
+    if (otherFeeTotal > 0) add('serious', `<b>${inr(otherFeeTotal)} in other card charges:</b> ${otherFees.map(g => `${g.name.toLowerCase().replace('gst', 'GST')} ${inr(g.total)}`).join(', ')}. Most banks drop the annual fee if you ask, or once you spend above a set amount in the year.`, ['View fees', { tab: 'leakage' }]);
     const subs = A.recurring.filter(r => r.active);
-    if (subs.length) add('warning', `<b>${subs.length} recurring payment${subs.length > 1 ? 's' : ''}, about ${inr(subs.reduce((s, r) => s + r.monthly, 0))} a month</b> (${inr(subs.reduce((s, r) => s + r.annual, 0))} a year). The biggest are ${subs.slice(0, 4).map(r => esc(r.name)).join(', ')}. The full list is on the Fees & subscriptions tab.`);
-    if (A.duplicates.length) add('warning', `<b>${A.duplicates.length} possible duplicate charge${A.duplicates.length > 1 ? 's' : ''}</b> with the same merchant and amount on the same day. Worth checking against your receipts.`);
-    if (A.missedSwiggy && A.missedSwiggy.total > 0) add('warning', `<b>${inr(A.missedSwiggy.total)} of Swiggy orders went on other cards.</b> The Swiggy card gives its best cashback on Swiggy itself. At 10% that's about ${inr(A.missedSwiggy.total * 0.1)} you could have got back.`);
-    if (B.foodShare > 0.15) add('info', `<b>Food delivery is ${pct(B.foodShare)} of card spend</b>, ${inr(B.foodDelivery / A.nMonths)} and about ${B.foodOrdersPerMonth.toFixed(0)} orders a month. Ordering a quarter less would save about ${inr(B.foodDelivery / A.nMonths * 0.25)} a month.`);
-    if (B.slopePct > 0.02 && A.nMonths >= 6) add('warning', `<b>Spending is going up about ${pct(B.slopePct, 1)} a month.</b> The last 3 months averaged ${inr(B.last3)}, against ${inr(B.first3)} in the first 3.`);
+    if (subs.length) add('warning', `<b>${subs.length} recurring payment${subs.length > 1 ? 's' : ''}, about ${inr(subs.reduce((s, r) => s + r.monthly, 0))} a month</b> (${inr(subs.reduce((s, r) => s + r.annual, 0))} a year). The biggest are ${subs.slice(0, 4).map(r => esc(r.name)).join(', ')}.`, ['View subscriptions', { tab: 'leakage' }]);
+    if (A.duplicates.length) add('warning', `<b>${A.duplicates.length} possible duplicate charge${A.duplicates.length > 1 ? 's' : ''}</b> with the same merchant and amount on the same day. Worth checking against your receipts.`, ['View duplicates', { tab: 'leakage' }]);
+    if (A.missedSwiggy && A.missedSwiggy.total > 0) add('warning', `<b>${inr(A.missedSwiggy.total)} of Swiggy orders went on other cards.</b> The Swiggy card gives its best cashback on Swiggy itself. At 10% that's about ${inr(A.missedSwiggy.total * 0.1)} you could have got back.`, ['See Swiggy orders', { tab: 'transactions', q: 'Swiggy' }]);
+    if (B.foodShare > 0.15) add('info', `<b>Food delivery is ${pct(B.foodShare)} of card spend</b>, ${inr(B.foodDelivery / A.nMonths)} and about ${B.foodOrdersPerMonth.toFixed(0)} orders a month. Ordering a quarter less would save about ${inr(B.foodDelivery / A.nMonths * 0.25)} a month.`, ['See food delivery orders', { tab: 'transactions', cat: 'Food delivery' }]);
+    if (B.slopePct > 0.02 && A.nMonths >= 6) add('warning', `<b>Spending is going up about ${pct(B.slopePct, 1)} a month.</b> The last 3 months averaged ${inr(B.last3)}, against ${inr(B.first3)} in the first 3.`, ['View on Spending', { tab: 'spending' }]);
     if (B.smallPerMonth > 15) add('info', `<b>${B.smallPerMonth.toFixed(0)} purchases under ₹${A.smallLimit} a month</b>, ${inr(A.small.reduce((s, t) => s + t.amount, 0) / A.nMonths)} a month in total.`);
     const util = A.cardStats.filter(c => c.maxUtil != null && c.maxUtil > 0.3);
-    if (util.length) add('warning', `<b>Balance went above 30% of the limit</b> on ${util.map(c => `${esc(c.card)} (up to ${pct(c.maxUtil)})`).join(', ')}. Keeping it lower on statement day helps your credit score.`);
+    if (util.length) add('warning', `<b>Balance went above 30% of the limit</b> on ${util.map(c => `${esc(c.card)} (up to ${pct(c.maxUtil)})`).join(', ')}. Keeping it lower on statement day helps your credit score.`, ['View on Cards', { tab: 'cards' }]);
     if (!interest && !late && !shortfalls.length) add('good', `<b>No interest or late fees</b> in this period. Every bill looks paid in full.`);
-    return out;
+    const rank = { critical: 0, serious: 1, warning: 2, info: 3, good: 4 };
+    return out.map((x, i) => ({ ...x, i })).sort((a, b) => rank[a.sev] - rank[b.sev] || a.i - b.i);
   }
 
   const badge = sev => `<span class="badge ${sev}" title="${sev}">${Icon({ critical: 'alert', serious: 'alert', warning: 'warn', info: 'info', good: 'check' }[sev])}</span>`;
 
   /* ---------- views ---------- */
+  const FEE_SHORT = { 'Interest & finance charges': 'Interest', 'Late payment fees': 'Late fees', 'Card fees': 'Fees', 'Taxes (GST)': 'GST', 'Forex markup': 'Forex', 'Fuel surcharge': 'Fuel surcharge' };
+  const infoTip = text => `<button type="button" class="info-tip" data-tip="${esc(text)}" aria-label="${esc(text)}">${Icon('info')}</button>`;
+  function goTo(go) {
+    if (go.tab === 'transactions') { txnQuery = go.q || ''; txnCat = go.cat || ''; txnLimit = 300; }
+    state.tab = go.tab; store.set('tab', state.tab);
+    render(); window.scrollTo(0, 0);
+  }
+
   function viewOverview(A) {
     const el = $('#tab-overview');
     const cards = A.cards;
@@ -604,87 +675,103 @@
     const last3 = avg3(totals.slice(-3)), prev3 = avg3(totals.slice(-6, -3));
     const ess = A.essential, dis = A.discretionary, essDis = ess + dis || 1;
     const topCats = A.categories.slice(0, 8);
-    const topMerch = A.merchants.slice(0, 6);
+    // Roughly match the height of the insights list beside it.
+    const topMerch = A.merchants.slice(0, Math.max(4, Math.min(8, ins.length - 1)));
+    const feeParts = A.feeGroups.slice(0, 3).map(g => `${FEE_SHORT[g.name] || g.name} ${inr(g.total)}`).join(' · ');
+    const nw = [[ess, 'Essential', 'needs'], [dis, 'Discretionary', 'wants']].filter(([v]) => v > 0);
     el.innerHTML = `
       <div class="grid g4">
         ${kpi('Total card spend', inr(A.totalSpend), `${A.nMonths} months · ${A.txnCount} purchases`, { hero: true, spark: totals })}
-        ${kpi('Average per month', inr(A.avgMonthly), `Last 3 months ${inr(last3)} a month`, { delta: prev3 ? (last3 - prev3) / prev3 : null, deltaLabel: 'vs the 3 before', upIsGood: false })}
-        ${kpi('Fees, interest & taxes', inr(A.totalFees), A.totalFees ? `${inr(A.totalFees * 12 / A.nMonths)} a year at this rate` : 'No avoidable charges found', { spark: A.monthly.map(r => r.fees) })}
+        ${kpi('Average per month', inr(A.avgMonthly), `Last 3 months ${inr(last3)} a month`, { delta: prev3 ? (last3 - prev3) / prev3 : null, deltaLabel: 'previous 3 months', upIsGood: false })}
+        ${kpi('Fees, interest & taxes', inr(A.totalFees), A.totalFees ? feeParts : 'No avoidable charges found', { spark: A.monthly.map(r => r.fees) })}
         ${kpi('Refunds & cashback', inr(A.totalRefunds + A.totalCashback), `Cashback ${inr(A.totalCashback)} · refunds ${inr(A.totalRefunds)}`, { spark: A.monthly.map(r => r.refunds) })}
       </div>
       <div class="grid g21">
         <div class="card">
-          <div class="head"><h2>Monthly spend by card</h2>${cards.length > 1 ? legendHtml(cards.map(c => [c, cardColor(c)])) : ''}</div>
-          <div class="chart-box tall"><canvas id="cMonthly"></canvas></div>
-          <p class="note">Purchases only. Bill payments, refunds and fees are left out.</p>
+          <div class="head"><h2>What stands out</h2><span class="sub">From the statements selected above</span></div>
+          <ul class="insights">${ins.map(i => `<li>${badge(i.sev)}<div>${i.html}${i.link ? ` <button type="button" class="link-btn" data-go="${esc(JSON.stringify(i.link[1]))}">${i.link[0]}&nbsp;→</button>` : ''}</div></li>`).join('')}</ul>
+        </div>
+        <div class="stack">
+          <div class="card">
+            <div class="head"><h2>Needs and wants</h2><span class="sub">${inr(A.totalPayments)} paid towards card bills</span></div>
+            <div class="nw" style="grid-template-columns:${nw.map(([v]) => `minmax(104px, ${(v / essDis).toFixed(3)}fr)`).join(' ')}" role="img" aria-label="${nw.map(([v, l]) => `${l} ${pct(v / essDis)}, ${inr(v / A.nMonths)} a month`).join('; ')}">
+              ${nw.map(([v, , k]) => `<i class="nw-bar ${k}">${pct(v / essDis)}</i>`).join('')}
+              ${nw.map(([v, l]) => `<div class="nw-label"><span>${l}</span><b>${inr(v / A.nMonths)}<small>/mo</small></b></div>`).join('')}
+            </div>
+          </div>
+          <div class="card">
+            <div class="head"><h2>Top merchants</h2><span class="sub">${A.merchantsA} of ${A.merchants.length} take 80% of spend</span></div>
+            ${barList(topMerch.map(m => ({ name: m.name, value: m.total, note: pct(m.share) })))}
+          </div>
+        </div>
+      </div>
+      <div class="grid g21">
+        <div class="card chart-card">
+          <div class="head"><h2 class="with-info">Monthly spend by card${infoTip('Purchases only. Bill payments, refunds and fees are left out.')}</h2>${cards.length > 1 ? legendHtml(cards.map(c => [shortCard(c), cardColor(c), c])) : ''}</div>
+          <div class="chart-box fill"><canvas id="cMonthly" role="img" aria-label="Monthly card spend, stacked by card"></canvas></div>
         </div>
         <div class="card">
           <div class="head"><h2>Where the money goes</h2><span class="sub">${A.paretoCats} categor${A.paretoCats === 1 ? 'y makes' : 'ies make'} up 80%</span></div>
           ${barList(topCats.map(c => ({ name: c.name, value: c.total, note: pct(c.share) })))}
         </div>
-      </div>
-      <div class="grid g21">
-        <div class="card">
-          <div class="head"><h2>What stands out</h2><span class="sub">From the statements selected above</span></div>
-          <ul class="insights">${ins.map(i => `<li>${badge(i.sev)}<div>${i.html}</div></li>`).join('')}</ul>
-        </div>
-        <div>
-          <div class="card">
-            <div class="head"><h2>Needs and wants</h2><span class="sub">${inr(A.totalPayments)} paid towards card bills</span></div>
-            <div class="seg" role="img" aria-label="Essential ${pct(ess / essDis)}, discretionary ${pct(dis / essDis)}">
-              ${ess ? `<i style="flex:${ess};background:${seriesColor(0)}">${ess / essDis > 0.12 ? pct(ess / essDis) : ''}</i>` : ''}
-              ${dis ? `<i style="flex:${dis};background:${seriesColor(1)}">${dis / essDis > 0.12 ? pct(dis / essDis) : ''}</i>` : ''}
-            </div>
-            ${legendHtml([[`Essential, ${inr(ess / A.nMonths)} a month`, seriesColor(0)], [`Discretionary, ${inr(dis / A.nMonths)} a month`, seriesColor(1)]])}
-          </div>
-          <div class="card">
-            <div class="head"><h2>Top merchants</h2><span class="sub">${A.merchantsA} of ${A.merchants.length} take 80% of spend</span></div>
-            ${barList(topMerch.map(m => ({ name: m.name, value: m.total })), seriesColor(2))}
-          </div>
-        </div>
       </div>`;
+    el.querySelectorAll('[data-go]').forEach(b => b.onclick = () => goTo(JSON.parse(b.dataset.go)));
+    const labelAll = A.months.length <= 18 && innerWidth >= 720;
     chart('cMonthly', {
       type: 'bar',
       _footer: pts => 'Total ' + inr(pts.reduce((s, p) => s + p.parsed.y, 0)),
       data: { labels: A.months.map(monthLabel), datasets: stacked(cards.map(c => barDs(c, A.monthly.map(r => r.byCard[c] || 0), cardColor(c)))) },
-      options: { scales: { x: { stacked: true }, y: { stacked: true, ticks: { callback: v => inrC(v) } } } },
+      options: { scales: { x: { stacked: true, ticks: { autoSkip: !labelAll } }, y: { stacked: true, ticks: { callback: v => inrC(v) } } } },
     });
   }
+
+  // A name that opens the Transactions tab filtered to it, keeping the card and date filters.
+  const cellLink = (label, go, tip) => `<button type="button" class="cell-link" data-go="${esc(JSON.stringify(go))}" title="${esc(tip)}">${esc(label)}</button>`;
+  const wireGo = root => root.querySelectorAll('[data-go]').forEach(b => b.onclick = () => goTo(JSON.parse(b.dataset.go)));
+  // Neutral bars, with a darker neutral picking out the bars the caption talks about.
+  const emphasis = (n, pick) => Array.from({ length: n }, (_, i) => pick(i) ? css('--ink-2') : css('--bar'));
 
   function viewSpending(A, F) {
     const el = $('#tab-spending');
     const maxShare = Math.max(...A.categories.map(c => c.share), 0.0001);
     const spendTx = F.txns.filter(isSpend);
+    const trend = A.categories.slice(0, 6);
     el.innerHTML = `
       <div class="card">
-        <div class="head"><h2>Daily spending</h2><span class="sub">The last 12 months in the selection. Darker days cost more.</span></div>
+        <div class="head"><h2>Daily spending</h2><span class="sub">The last 12 months in the selection</span></div>
         ${calendar(spendTx)}
       </div>
       <div class="card">
-        <div class="head"><h2>Category breakdown</h2><span class="small muted">Change the type to move a category between essential and discretionary. Change compares the second half of the period with the first half.</span></div>
-        <div class="table-wrap"><table>
+        <div class="head"><h2 class="with-info">Category breakdown${infoTip('Change compares the second half of the selected period with the first half. Click a category to see its transactions.')}</h2><span class="sub">Change the type to move a category between essential and discretionary</span></div>
+        <div class="table-wrap"><table class="cat-table">
           <thead><tr><th>Category</th><th>Type</th><th class="r">Total</th><th class="r">Per month</th><th>Share</th><th class="r">Txns</th><th class="r">Avg ticket</th><th class="r">Change</th></tr></thead>
-          <tbody>${A.categories.map(c => `<tr><td>${esc(c.name)}</td><td><select class="nature" data-cat="${esc(c.name)}" title="Saved in the database">${['essential', 'discretionary'].map(n => `<option ${n === c.nature ? 'selected' : ''}>${n}</option>`).join('')}</select></td><td class="r">${inr(c.total)}</td><td class="r">${inr(c.monthlyAvg)}</td>
+          <tbody>${A.categories.map(c => `<tr><td>${cellLink(c.name, { tab: 'transactions', cat: c.name }, `See ${c.name} transactions`)}</td><td><select class="nature" data-cat="${esc(c.name)}" aria-label="Type of ${esc(c.name)}" title="Saved in the database">${['essential', 'discretionary'].map(n => `<option ${n === c.nature ? 'selected' : ''}>${n}</option>`).join('')}</select></td><td class="r">${inr(c.total)}</td><td class="r">${inr(c.monthlyAvg)}</td>
             <td class="bar-cell"><div><i class="bar" style="width:${(c.share / maxShare * 70).toFixed(1)}%"></i><span>${pct(c.share, 1)}</span></div></td>
             <td class="r">${c.count}</td><td class="r">${inr(c.avgTicket)}</td><td class="r ${c.change > 0.15 ? 'bad' : c.change < -0.15 ? 'ok' : ''}">${c.change == null ? '—' : (c.change > 0 ? '▲ ' : '▼ ') + pct(Math.abs(c.change))}</td></tr>`).join('')}</tbody>
         </table></div>
       </div>
       <div class="card">
-        <div class="head"><h2>Monthly trend of the top categories</h2>${legendHtml(A.categories.slice(0, 6).map((c, i) => [c.name, seriesColor(i)]), 'line')}</div>
-        <div class="chart-box"><canvas id="cCatTrend"></canvas></div>
+        <div class="head"><h2 class="with-info">Monthly trend of the top categories${infoTip('Each chart has its own scale, so compare shapes, not heights.')}</h2><span class="sub">Average per month on the right</span></div>
+        <div class="multiples">${trend.map((c, i) => `<div class="mini">
+          <div class="mini-head">${cellLink(c.name, { tab: 'transactions', cat: c.name }, `See ${c.name} transactions`)}<b>${inr(c.monthlyAvg)}</b></div>
+          <div class="chart-box mini-chart"><canvas id="cTrend${i}" role="img" aria-label="${esc(c.name)} spend by month"></canvas></div>
+        </div>`).join('')}</div>
       </div>
       <div class="grid g2">
-        <div class="card"><div class="head"><h2>Spend per day, by weekday</h2><span class="small muted">Weekend ${inr(A.weekendPerDay)}/day vs weekday ${inr(A.weekdayPerDay)}/day</span></div><div class="chart-box short"><canvas id="cDow"></canvas></div></div>
-        <div class="card"><div class="head"><h2>Spend by day of month</h2><span class="small muted">Look for spikes just after payday</span></div><div class="chart-box short"><canvas id="cDom"></canvas></div></div>
+        <div class="card"><div class="head"><h2>Spend per day, by weekday</h2><span class="sub">Weekend (highlighted) ${inr(A.weekendPerDay)}/day vs weekday ${inr(A.weekdayPerDay)}/day</span></div><div class="chart-box short"><canvas id="cDow"></canvas></div></div>
+        <div class="card"><div class="head"><h2>Spend by day of month</h2><span class="sub">Look for spikes just after payday</span></div><div class="chart-box short"><canvas id="cDom"></canvas></div></div>
       </div>
-      ${A.timedCount ? `<div class="card"><div class="head"><h2>Spend by hour of day</h2><span class="small muted">${A.timedCount} transactions have a timestamp · ${pct(A.behaviour.lateNightShare)} between 11pm and 5am</span></div><div class="chart-box short"><canvas id="cHour"></canvas></div></div>` : ''}`;
-    chart('cCatTrend', {
+      ${A.timedCount ? `<div class="card"><div class="head"><h2 class="with-info">Spend by hour of day${infoTip(`${A.timedCount} transactions have a timestamp. The rest are left out.`)}</h2><span class="sub">${pct(A.behaviour.lateNightShare)} of timed purchases between 11pm and 5am, highlighted</span></div><div class="chart-box short"><canvas id="cHour"></canvas></div></div>` : ''}`;
+    wireGo(el);
+    const bar = css('--bar'), moneyY = { ticks: { callback: v => inrC(v), maxTicksLimit: 4 } };
+    trend.forEach((c, i) => chart('cTrend' + i, {
       type: 'line',
-      data: { labels: A.months.map(monthLabel), datasets: A.categories.slice(0, 6).map((c, i) => lineDs(c.name, c.byMonth, seriesColor(i))) },
-      options: { scales: { x: {}, y: { ticks: { callback: v => inrC(v) } } } },
-    });
-    chart('cDow', { type: 'bar', data: { labels: A.dow.map(d => d.name), datasets: [barDs('Avg spend per day', A.dow.map(d => d.perDay), seriesColor(0))] }, options: { scales: { x: {}, y: { ticks: { callback: v => inrC(v) } } } } });
-    chart('cDom', { type: 'bar', data: { labels: A.dom.map(d => d.day), datasets: [barDs('Total spend', A.dom.map(d => d.total), seriesColor(0), { maxBarThickness: 14 })] }, options: { scales: { x: { ticks: { maxRotation: 0, autoSkipPadding: 6 } }, y: { ticks: { callback: v => inrC(v) } } } } });
+      data: { labels: A.months.map(monthLabel), datasets: [lineDs(c.name, c.byMonth, bar, { fill: 'origin', backgroundColor: bar + '1f', borderWidth: 1.75 })] },
+      options: { scales: { x: { ticks: { maxTicksLimit: 4 } }, y: moneyY } },
+    }));
+    const weekend = d => d.name === 'Sat' || d.name === 'Sun';
+    chart('cDow', { type: 'bar', data: { labels: A.dow.map(d => d.name), datasets: [barDs('Avg spend per day', A.dow.map(d => d.perDay), bar, { backgroundColor: emphasis(A.dow.length, i => weekend(A.dow[i])), _color: bar })] }, options: { scales: { x: {}, y: moneyY } } });
+    chart('cDom', { type: 'bar', data: { labels: A.dom.map(d => d.day), datasets: [barDs('Total spend', A.dom.map(d => d.total), bar, { maxBarThickness: 14 })] }, options: { scales: { x: { ticks: { maxRotation: 0, autoSkipPadding: 6 } }, y: moneyY } } });
     wireCalendar();
     el.querySelectorAll('select.nature').forEach(sel => sel.onchange = () => {
       const cat = sel.dataset.cat, def = (Categoriser.CATEGORIES[cat] || {}).nature;
@@ -693,13 +780,14 @@
       saveSettings();
       render();
     });
-    if (A.timedCount) chart('cHour', { type: 'bar', _fmt: v => v + ' txns', data: { labels: A.hours.map(h => String(h.hour).padStart(2, '0')), datasets: [barDs('Transactions', A.hours.map(h => h.count), seriesColor(0), { maxBarThickness: 18 })] }, options: { scales: { x: {}, y: {} } } });
+    const late = h => h >= 23 || h < 5;
+    if (A.timedCount) chart('cHour', { type: 'bar', _fmt: v => v + ' txns', data: { labels: A.hours.map(h => String(h.hour).padStart(2, '0')), datasets: [barDs('Transactions', A.hours.map(h => h.count), bar, { maxBarThickness: 18, backgroundColor: emphasis(A.hours.length, i => late(A.hours[i].hour)) })] }, options: { scales: { x: {}, y: { ticks: { maxTicksLimit: 4 } } } } });
   }
 
   const AUTO = 'Automatic';
   function catButton(merchant, category) {
     const edited = !!state.overrides[merchant];
-    return `<button class="catbtn${edited ? ' edited' : ''}" data-merchant="${esc(merchant)}" data-cat="${esc(category)}" title="${edited ? 'Set by you. Click to change.' : 'Click to change the category for this merchant'}">${esc(category)}${edited ? ' ✎' : ''}</button>`;
+    return `<button class="catbtn${edited ? ' edited' : ''}" data-merchant="${esc(merchant)}" data-cat="${esc(category)}" title="${edited ? 'Set by you. Click to change.' : 'Click to change the category for this merchant'}">${esc(category)}${edited ? Icon('pencil') : ''}</button>`;
   }
   function wireCatButtons(root) {
     const cats = Object.keys(Categoriser.CATEGORIES);
@@ -774,93 +862,97 @@
   function viewMerchants(A) {
     const el = $('#tab-merchants');
     const colorOf = Object.fromEntries(cardOrder().map(c => [c, cardColor(c)]));
+    const maxShare = Math.max(...A.merchants.map(m => m.share), 0.0001);
     el.innerHTML = `
-      <div class="grid g3">
-        ${kpi('Unique merchants', A.merchants.length, `${A.merchantsA} "A" merchants make up 80% of spend`)}
-        ${kpi('Top 5 merchants', pct(A.behaviour.top5Share), 'share of total spend')}
-        ${kpi('Paid with more than one card', A.multiCardMerchants.length, 'Merchants you split across cards')}
-      </div>
       <div class="card">
-        <div class="head"><h2>Merchants</h2>
-          <input type="search" id="mq" placeholder="Search merchants" value="${esc(merchQuery)}" style="min-width:220px">
+        <div class="head">
+          <h2 class="with-info">Merchants${infoTip('Class A merchants make up the top 80% of spend, B the next 15%, C the rest. Names are cleaned up, so every SWIGGY* variant counts as Swiggy, with Instamart kept separate.')}</h2>
+          <input type="search" id="mq" placeholder="Search merchants" aria-label="Search merchants" value="${esc(merchQuery)}">
         </div>
-        <p class="small muted" style="margin:-4px 0 10px">Click a category to change it. The change applies to every transaction from that merchant, including future statements, and is saved in the database. Class A is the top 80% of spend, B the next 15%, C the rest.</p>
-        <div class="table-wrap" style="max-height:640px"><table>
-          <thead><tr><th>#</th><th>Merchant</th><th>Class</th><th>Category</th><th class="r">Total</th><th class="r">Share</th><th class="r">Txns</th><th class="r">Avg</th><th class="r">Months</th><th>Cards</th></tr></thead>
-          <tbody>${A.merchants.map((m, i) => `<tr data-name="${esc(m.name.toLowerCase())}"><td class="muted">${i + 1}</td><td>${esc(m.name)}</td><td><span class="tag ${m.abc}">${m.abc}</span></td><td>${catButton(m.name, m.category)}</td><td class="r">${inr(m.total)}</td><td class="r">${pct(m.share, 1)}</td><td class="r">${m.count}</td><td class="r">${inr(m.avg)}</td><td class="r">${m.months}</td><td>${m.cards.map(c => `<i class="swatch" title="${esc(c)}" style="background:${colorOf[c]}"></i>`).join(' ')}</td></tr>`).join('')}</tbody>
+        <p class="small muted m-help">Click a merchant to see its transactions. Click a category to change it for every transaction from that merchant, including future statements.</p>
+        <div class="table-wrap m-wrap"><table class="m-table">
+          <thead><tr><th class="m-rank">#</th><th>Merchant</th><th>Class</th><th>Category</th><th class="r">Total</th><th>Share</th><th class="r">Txns</th><th class="r m-avg">Avg</th><th class="r m-months">Months</th><th>Cards</th></tr></thead>
+          <tbody>${A.merchants.map((m, i) => `<tr data-name="${esc(m.name.toLowerCase())}"><td class="muted m-rank">${i + 1}</td><td>${cellLink(m.name, { tab: 'transactions', q: m.name }, `See ${m.name} transactions`)}</td><td><span class="tag cls ${m.abc}">${m.abc}</span></td><td>${catButton(m.name, m.category)}</td><td class="r">${inr(m.total)}</td>
+            <td class="bar-cell"><div><i class="bar" style="width:${(m.share / maxShare * 70).toFixed(1)}%"></i><span>${pct(m.share, 1)}</span></div></td>
+            <td class="r">${m.count}</td><td class="r m-avg">${inr(m.avg)}</td><td class="r m-months">${m.months}</td><td class="m-cards">${m.cards.map(c => `<i class="swatch" role="img" aria-label="${esc(c)}" data-tip="${esc(c)}" style="background:${colorOf[c]}"></i>`).join('')}</td></tr>`).join('')}</tbody>
         </table></div>
-        <p class="note">Merchant names are cleaned up, so every SWIGGY* variant counts as Swiggy, with Instamart kept separate.</p>
+        <div class="tx-empty" id="mEmpty" hidden><p id="mEmptyText"></p><button class="btn" id="mReset">Clear search</button></div>
       </div>`;
     wireCatButtons(el.querySelector('tbody'));
-    const filterRows = () => { const q = merchQuery.toLowerCase(); el.querySelectorAll('tbody tr').forEach(r => { r.style.display = !q || r.dataset.name.includes(q) ? '' : 'none'; }); };
+    wireGo(el);
+    const filterRows = () => {
+      const q = merchQuery.toLowerCase();
+      let n = 0;
+      el.querySelectorAll('tbody tr').forEach(r => { const on = !q || r.dataset.name.includes(q); r.style.display = on ? '' : 'none'; n += on; });
+      el.querySelector('.m-wrap').hidden = !n;
+      $('#mEmpty').hidden = !!n;
+      $('#mEmptyText').textContent = `No merchant matches “${merchQuery}”.`;
+    };
     $('#mq').oninput = e => { merchQuery = e.target.value; filterRows(); };
+    $('#mReset').onclick = () => { merchQuery = ''; $('#mq').value = ''; filterRows(); $('#mq').focus(); };
     filterRows();
   }
 
+  // Swatch + short card name; the full name shows on hover.
+  const cardLabel = c => `<span class="card-label" data-tip="${esc(c)}"><i class="swatch" style="background:${cardColor(c)}"></i>${esc(shortCard(c))}</span>`;
 
   function viewCards(A) {
     const el = $('#tab-cards');
     const rows = A.cardStats;
     const utilColor = u => u == null ? 'var(--axis)' : u > 0.5 ? 'var(--critical)' : u > 0.3 ? 'var(--warning)' : 'var(--good-mark)';
+    const rewards = c => c.cashback + c.points * c.pointValue;
+    const anyPoints = rows.some(c => c.points);
     el.innerHTML = `
       <div class="grid ${rows.length >= 4 ? 'g4' : rows.length === 3 ? 'g3' : 'g2'}">
-        ${rows.map(c => `<div class="card cardtile" style="--c:${cardColor(c.card)}">
-          <div class="nm">${esc(c.card)}</div>
+        ${rows.map(c => `<div class="card cardtile">
+          <div class="nm" data-tip="${esc(c.card)}"><i class="swatch" style="background:${cardColor(c.card)}"></i>${esc(shortCard(c.card))}</div>
           <div class="small muted">${c.statements} statements · ${pct(c.share)} of spend</div>
+          <div class="bill">
+            <span class="label">Latest bill</span>
+            <span class="value">${inr(c.latest?.totalDue)}</span>
+            <span class="small muted">${c.latest?.dueDate ? 'Due ' + dateLabel(c.latest.dueDate) : 'Due date not found'}</span>
+          </div>
           <dl>
-            <dt>Spent</dt><dd>${inr(c.spend)}</dd>
-            <dt>Cashback and points</dt><dd>${inr(c.cashback + c.points * c.pointValue)}</dd>
-            <dt>Fees and interest</dt><dd class="${c.otherFees + c.late + c.interest ? 'bad' : ''}">${inr(c.otherFees + c.late + c.interest)}</dd>
-            <dt>Net benefit</dt><dd class="${c.netBenefit >= 0 ? 'ok' : 'bad'}">${inr(c.netBenefit)}</dd>
-            <dt>Latest bill</dt><dd>${inr(c.latest?.totalDue)}<div class="small muted" style="font-weight:400">${c.latest?.dueDate ? 'due ' + dateLabel(c.latest.dueDate) : ''}</div></dd>
+            <dt>Minimum due</dt><dd>${inr(c.latest?.minDue)}</dd>
+            <dt>Credit limit</dt><dd>${inr(c.latestLimit)}</dd>
+            <dt data-tip="The payment in the next statement compared with the total due of this one">Bills paid in full</dt><dd>${c.shortfalls.length ? `<span class="bad" data-tip="${esc(c.shortfalls.map(s => `${dateLabel(s.statementDate)}: ${inr(s.due)} due, ${inr(s.paid)} paid`).join(' · '))}">${c.shortfalls.length} short by ${inr(c.shortfalls.reduce((a, s) => a + s.due - s.paid, 0))}</span>` : 'Yes'}</dd>
           </dl>
-          <div class="small ink2" style="margin-top:12px;display:flex;justify-content:space-between"><span>Peak use of limit</span><span>${c.maxUtil == null ? 'limit not found' : pct(c.maxUtil)}</span></div>
+          <div class="small ink2 util-row"><span>Peak use of limit</span><span>${c.maxUtil == null ? 'limit not found' : pct(c.maxUtil)}</span></div>
           <div class="meter"><i style="width:${c.maxUtil == null ? 0 : Math.min(100, c.maxUtil * 100).toFixed(1)}%;background:${utilColor(c.maxUtil)}"></i></div>
         </div>`).join('')}
       </div>
       <div class="card">
-        <div class="head"><h2>Card comparison</h2><span class="small muted">Net benefit = cashback + points × point value − fees − interest</span></div>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Card</th><th class="r">Spend</th><th class="r">Share</th><th class="r">Txns</th><th class="r">Avg ticket</th><th class="r">Cashback</th><th class="r">Points</th><th class="r">₹/point</th><th class="r">Fees</th><th class="r">Interest</th><th class="r">Net benefit</th><th class="r">Effective return</th></tr></thead>
-          <tbody>${rows.map(c => `<tr><td><i class="swatch" style="background:${cardColor(c.card)}"></i> ${esc(c.card)}<div class="small muted">${c.statements} statements · top: ${c.topCategories.map(t => esc(t.name)).join(', ')}</div></td>
-            <td class="r">${inr(c.spend)}</td><td class="r">${pct(c.share)}</td><td class="r">${c.count}</td><td class="r">${inr(c.avgTicket)}</td><td class="r">${inr(c.cashback)}</td>
-            <td class="r">${c.points ? c.points.toLocaleString('en-IN') : '—'}</td><td class="r"><input type="number" step="0.05" min="0" style="width:70px" data-pv="${esc(c.card)}" value="${c.pointValue}"></td>
-            <td class="r">${inr(c.otherFees + c.late)}</td><td class="r ${c.interest ? 'bad' : ''}">${inr(c.interest)}</td><td class="r ${c.netBenefit >= 0 ? 'ok' : 'bad'}">${inr(c.netBenefit)}</td><td class="r">${pct(c.effectiveReturn, 2)}</td></tr>`).join('')}</tbody>
+        <div class="head"><h2 class="with-info">Card comparison${infoTip('Net benefit = cashback + points × point value − fees − interest. Points count only where the statement prints them as "+N" next to a transaction. Cashback counts credits labelled cashback or reward.')}</h2><span class="sub">Over the selected period</span></div>
+        <div class="table-wrap"><table class="cmp">
+          <thead><tr><th>Card</th><th class="r">Spend</th><th class="r">Share</th><th class="r">Avg purchase</th><th class="r">Rewards</th><th class="r">Fees & interest</th><th class="r">Net benefit</th><th class="r">Return</th></tr></thead>
+          <tbody>${rows.map(c => `<tr><td>${cardLabel(c.card)}</td>
+            <td class="r">${inr(c.spend)}</td><td class="r">${pct(c.share)}</td><td class="r">${inr(c.avgTicket)}</td>
+            <td class="r">${inr(rewards(c))}${c.points ? `<div class="small muted">${c.points.toLocaleString('en-IN')} points</div>` : ''}</td>
+            <td class="r ${c.otherFees + c.late + c.interest ? 'bad' : ''}">${inr(c.otherFees + c.late + c.interest)}</td>
+            <td class="r ${c.netBenefit >= 0 ? 'ok' : 'bad'}">${inr(c.netBenefit)}</td><td class="r">${pct(c.effectiveReturn, 2)}</td></tr>`).join('')}</tbody>
         </table></div>
-        <p class="note">Points are counted only where the statement prints them as "+N" next to a transaction. Cashback is counted from credits labelled cashback/reward. Set ₹/point to what you actually get when you redeem.</p>
+        ${anyPoints ? `<div class="pv-row"><span class="small ink2">Value of one point when you redeem</span>${rows.filter(c => c.points).map(c => `<label class="pv">${cardLabel(c.card)}<span class="pv-input">₹<input type="number" step="0.05" min="0" data-pv="${esc(c.card)}" value="${c.pointValue}" aria-label="Rupees per point for ${esc(c.card)}"></span></label>`).join('')}</div>` : ''}
       </div>
-      <div class="grid g2">
-        <div class="card">
-          <div class="head"><h2>Credit utilization per statement</h2>${rows.length > 1 ? legendHtml(rows.map(c => [c.card, cardColor(c.card)]), 'line') : ''}</div>
-          <div class="chart-box short"><canvas id="cUtil"></canvas></div>
-          <p class="note">Statement total due ÷ credit limit, as read from each statement. Below 30% is healthy. Gaps mean a value could not be found in that PDF.</p>
+      <div class="card chart-card">
+          <div class="head"><h2 class="with-info">Credit use per statement${infoTip('Statement total due ÷ credit limit, as read from each statement. Gaps mean a value could not be found in that PDF.')}</h2>${rows.length > 1 ? legendHtml(rows.map(c => [shortCard(c.card), cardColor(c.card), c.card]), 'line') : ''}</div>
+          <div class="chart-box"><canvas id="cUtil" role="img" aria-label="Credit use per statement, by card"></canvas></div>
+          <p class="note">Below 30% of the limit is healthy for your credit score.</p>
         </div>
-        <div class="card">
-          <div class="head"><h2>Latest statement & upcoming dues</h2></div>
-          <table><thead><tr><th>Card</th><th class="r">Total due</th><th class="r">Min due</th><th>Due date</th><th class="r">Limit</th><th class="r">Peak util.</th></tr></thead>
-          <tbody>${rows.map(c => `<tr><td>${esc(c.card)}</td><td class="r">${inr(c.latest?.totalDue)}</td><td class="r">${inr(c.latest?.minDue)}</td><td>${dateLabel(c.latest?.dueDate)}</td><td class="r">${inr(c.latestLimit)}</td><td class="r">${pct(c.maxUtil)}</td></tr>`).join('')}</tbody></table>
-        </div>
-      </div>
-      <div class="card">
-        <div class="head"><h2>Were bills paid in full?</h2><span class="small muted">The payment in the next statement compared with the total due of this one</span></div>
-        ${rows.some(c => c.shortfalls.length) ? `<table><thead><tr><th>Card</th><th>Statement</th><th class="r">Total due</th><th class="r">Paid in next cycle</th><th class="r">Shortfall</th></tr></thead><tbody>
-          ${rows.flatMap(c => c.shortfalls.map(s => `<tr><td>${esc(c.card)}</td><td>${dateLabel(s.statementDate)}</td><td class="r">${inr(s.due)}</td><td class="r">${inr(s.paid)}</td><td class="r bad">${inr(s.due - s.paid)}</td></tr>`)).join('')}</tbody></table>`
-        : `<p class="ok">✓ Every statement with a readable total due was fully paid in the next cycle.</p>`}
-      </div>
       <div class="card">
         <div class="head"><h2>Which card to use where</h2></div>
         <ul class="insights">
-          ${A.missedSwiggy ? `<li>${badge('warning')}<div>${inr(A.missedSwiggy.total)} of Swiggy/Instamart spend (${A.missedSwiggy.count} txns) was paid with other cards. Send it through <b>${esc(A.missedSwiggy.card)}</b>.</div></li>` : ''}
-          ${A.multiCardMerchants.slice(0, 8).map(m => `<li>${badge('info')}<div><b>${esc(m.name)}</b> (${inr(m.total)}) was paid with ${m.cards.length} cards: ${m.cards.map(esc).join(', ')}. Pick the card that earns the most for ${esc(m.category.toLowerCase())}.</div></li>`).join('')}
+          ${A.missedSwiggy ? `<li>${badge('warning')}<div>${inr(A.missedSwiggy.total)} of Swiggy and Instamart spend (${A.missedSwiggy.count} purchases) went on other cards. Use <b data-tip="${esc(A.missedSwiggy.card)}">${esc(shortCard(A.missedSwiggy.card))}</b> for these. <button type="button" class="link-btn" data-go="${esc(JSON.stringify({ tab: 'transactions', q: 'Swiggy' }))}">See Swiggy orders&nbsp;→</button></div></li>` : ''}
+          ${A.multiCardMerchants.slice(0, 8).map(m => `<li>${badge('info')}<div><b>${esc(m.name)}</b> (${inr(m.total)}) was paid with ${m.cards.length} cards: ${m.cards.map(c => esc(shortCard(c))).join(', ')}. Pick the card that earns the most for ${esc(m.category.toLowerCase())}.</div></li>`).join('')}
           ${!A.missedSwiggy && !A.multiCardMerchants.length ? `<li>${badge('good')}<div>Each merchant is mostly paid with a single card.</div></li>` : ''}
         </ul>
       </div>`;
+    wireGo(el);
     el.querySelectorAll('input[data-pv]').forEach(inp => inp.onchange = () => { state.settings.pointValue[inp.dataset.pv] = parseFloat(inp.value) || 0; saveSettings(); render(); });
     const labels = [...new Set(rows.flatMap(c => c.util.map(u => u.statementDate)).filter(Boolean))].sort();
     chart('cUtil', {
       type: 'line', _fmt: v => pct(v),
       data: { labels: labels.map(d => dateLabel(d)), datasets: rows.map(c => lineDs(c.card, labels.map(d => { const u = c.util.find(x => x.statementDate === d); return u && u.ratio != null ? u.ratio : null; }), cardColor(c.card), { pointRadius: 3, pointBorderColor: css('--surface'), pointBorderWidth: 1.5, spanGaps: true })) },
-      options: { scales: { x: {}, y: { min: 0, ticks: { callback: v => { const p = Math.round(v * 1000) / 10; return (Number.isInteger(p) ? p : p.toFixed(1)) + '%'; } } } } },
+      options: { scales: { x: { ticks: { maxTicksLimit: 6 } }, y: { min: 0, ticks: { maxTicksLimit: 5, callback: v => { const p = Math.round(v * 1000) / 10; return (Number.isInteger(p) ? p : p.toFixed(1)) + '%'; } } } } },
     });
   }
 
@@ -885,8 +977,8 @@
       </div>
       <div class="card">
         <div class="head"><h2>Fees and charges</h2></div>
-        <table><thead><tr><th>Charge</th><th></th><th class="r">Occurrences</th><th class="r">Paid</th><th class="r">Per year</th></tr></thead>
-        <tbody>${leak.map(([n, p, g]) => `<tr><td>${n}</td><td><span class="tag">${p}</span></td><td class="r">${g ? g.count : 0}</td><td class="r ${g ? 'bad' : 'ok'}">${g ? inr(g.total) : '₹0'}</td><td class="r">${g ? inr(g.annual) : '—'}</td></tr>`).join('')}
+        <table><thead><tr><th>Charge</th><th>Type</th><th class="r">Occurrences</th><th class="r">Paid</th><th class="r">Per year</th></tr></thead>
+        <tbody>${leak.map(([n, p, g]) => `<tr><td>${n}</td><td><span class="tag${p === 'Avoidable' ? ' bad' : ''}">${p}</span></td><td class="r">${g ? g.count : 0}</td><td class="r ${g ? 'bad' : 'ok'}">${g ? inr(g.total) : '₹0'}</td><td class="r">${g ? inr(g.annual) : '—'}</td></tr>`).join('')}
           <tr><td>Recurring / subscriptions</td><td><span class="tag">Worth a look</span></td><td class="r">${A.recurring.filter(r => r.active).length}</td><td class="r">—</td><td class="r">${inr(subsAnnual)}</td></tr>
           ${A.feeGroups.find(g => g.name === 'Forex markup') ? '' : `<tr><td>Forex markup (estimated at 3.5%)</td><td><span class="tag">Worth a look</span></td><td class="r">${A.forexSpend.length}</td><td class="r">${inr(forexTotal * 0.035)}</td><td class="r">${inr(forexTotal * 0.035 * 12 / A.nMonths)}</td></tr>`}
         </tbody></table>
@@ -901,11 +993,11 @@
       <div class="grid g2">
         <div class="card">
           <div class="head"><h2>Possible duplicate charges</h2></div>
-          ${A.duplicates.length ? `<table><thead><tr><th>Merchant</th><th class="r">Amount</th><th>Dates</th><th>Card</th></tr></thead><tbody>${A.duplicates.map(([a, b]) => `<tr><td>${esc(a.merchant)}</td><td class="r">${inr(a.amount)}</td><td>${dateLabel(a.date)} / ${dateLabel(b.date)}</td><td class="small">${esc(a.card)}</td></tr>`).join('')}</tbody></table>` : '<p class="ok">✓ None found.</p>'}
+          ${A.duplicates.length ? `<table><thead><tr><th>Merchant</th><th class="r">Amount</th><th>Dates</th><th>Card</th></tr></thead><tbody>${A.duplicates.map(([a, b]) => `<tr><td>${esc(a.merchant)}</td><td class="r">${inr(a.amount)}</td><td>${dateLabel(a.date)} / ${dateLabel(b.date)}</td><td class="small">${esc(a.card)}</td></tr>`).join('')}</tbody></table>` : `<p>${okMark('None found.')}</p>`}
         </div>
         <div class="card">
           <div class="head"><h2>Unusual transactions</h2><span class="small muted">Much bigger than usual for their category</span></div>
-          ${A.anomalies.length ? `<div class="table-wrap" style="max-height:360px"><table><thead><tr><th>Date</th><th>Merchant</th><th class="r">Amount</th><th>Why</th></tr></thead><tbody>${A.anomalies.map(a => `<tr><td>${dateLabel(a.txn.date)}</td><td>${esc(a.txn.merchant)}</td><td class="r">${inr(a.txn.amount)}</td><td class="small ink2">${esc(a.reason)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="ok">✓ Nothing unusual.</p>'}
+          ${A.anomalies.length ? `<div class="table-wrap" style="max-height:360px"><table><thead><tr><th>Date</th><th>Merchant</th><th class="r">Amount</th><th>Why</th></tr></thead><tbody>${A.anomalies.map(a => `<tr><td>${dateLabel(a.txn.date)}</td><td>${esc(a.txn.merchant)}</td><td class="r">${inr(a.txn.amount)}</td><td class="small ink2">${esc(a.reason)}</td></tr>`).join('')}</tbody></table></div>` : `<p>${okMark('Nothing unusual.')}</p>`}
         </div>
       </div>
       <div class="card">
@@ -921,7 +1013,9 @@
         </tbody></table>
       </div>`;
   }
-  const riskRow = (label, ok, bad) => `<tr><td>${label}</td><td>${ok ? '<span class="ok">✓ OK</span>' : `<span class="bad">! ${esc(bad)}</span>`}</td></tr>`;
+  const okMark = text => `<span class="ok mark">${Icon('tick')}${text}</span>`;
+  const badMark = text => `<span class="bad mark">${Icon('alert')}${text}</span>`;
+  const riskRow = (label, ok, bad) => `<tr><td>${label}</td><td>${ok ? okMark('OK') : badMark(esc(bad))}</td></tr>`;
 
   function txnTable(list) {
     return `<div class="table-wrap" style="max-height:320px"><table><thead><tr><th>Date</th><th>Description</th><th>Card</th><th class="r">Amount</th></tr></thead><tbody>${list.sort((a, b) => a.date.localeCompare(b.date)).map(t => `<tr><td>${dateLabel(t.date)}</td><td class="small">${esc(t.description)}</td><td class="small">${esc(t.card)}</td><td class="r">${inr(t.amount)}</td></tr>`).join('')}</tbody></table></div>`;
@@ -945,17 +1039,17 @@
     el.innerHTML = `
       <div class="card">
         <div class="head"><h2>Spending habits</h2><span class="small muted">Worked out from your transactions</span></div>
-        <table><thead><tr><th></th><th class="r">Value</th><th>What it means</th><th>Level</th></tr></thead>
-        <tbody>${rows.map(r => `<tr><td>${r[0]}</td><td class="r">${r[1]}</td><td class="ink2 small">${r[2]}</td><td><span class="tag">${r[3]}</span></td></tr>`).join('')}</tbody></table>
+        <table><thead><tr><th>Measure</th><th class="r">Value</th><th>What it means</th><th>Level</th></tr></thead>
+        <tbody>${rows.map(r => `<tr><td>${r[0]}</td><td class="r">${r[1]}</td><td class="ink2 small">${r[2]}</td><td><span class="tag${/^(High|Rising|Volatile|Concentrated)$/.test(r[3]) ? ' warn' : ''}">${r[3]}</span></td></tr>`).join('')}</tbody></table>
       </div>
       <div class="grid g2">
         <div class="card">
           <div class="head"><h2>Categories growing fastest</h2><span class="small muted">Second half vs first half of the period</span></div>
-          ${rising.length ? `<table><thead><tr><th>Category</th><th class="r">Before</th><th class="r">After</th><th class="r">Change</th></tr></thead><tbody>${rising.map(c => `<tr><td>${esc(c.name)}</td><td class="r">${inr(c.h1)}</td><td class="r">${inr(c.h2)}</td><td class="r bad">▲ ${pct(c.change)}</td></tr>`).join('')}</tbody></table>` : '<p class="ok">✓ No category grew more than 20%.</p>'}
+          ${rising.length ? `<table><thead><tr><th>Category</th><th class="r">Before</th><th class="r">After</th><th class="r">Change</th></tr></thead><tbody>${rising.map(c => `<tr><td>${esc(c.name)}</td><td class="r">${inr(c.h1)}</td><td class="r">${inr(c.h2)}</td><td class="r bad">▲ ${pct(c.change)}</td></tr>`).join('')}</tbody></table>` : `<p>${okMark('No category grew more than 20%.')}</p>`}
         </div>
         <div class="card">
           <div class="head"><h2>Unusual months</h2><span class="small muted">Months where a category was more than double its usual amount</span></div>
-          ${A.spikes.length ? `<table><thead><tr><th>Month</th><th>Category</th><th class="r">Spent</th><th class="r">Typical</th></tr></thead><tbody>${A.spikes.slice(0, 15).map(s => `<tr><td>${monthLabel(s.month)}</td><td>${esc(s.category)}</td><td class="r">${inr(s.amount)}</td><td class="r muted">${inr(s.typical)}</td></tr>`).join('')}</tbody></table>` : '<p class="ok">✓ No spikes.</p>'}
+          ${A.spikes.length ? `<table><thead><tr><th>Month</th><th>Category</th><th class="r">Spent</th><th class="r">Typical</th></tr></thead><tbody>${A.spikes.slice(0, 15).map(s => `<tr><td>${monthLabel(s.month)}</td><td>${esc(s.category)}</td><td class="r">${inr(s.amount)}</td><td class="r muted">${inr(s.typical)}</td></tr>`).join('')}</tbody></table>` : `<p>${okMark('No spikes.')}</p>`}
         </div>
       </div>
       <div class="card">
@@ -1061,35 +1155,41 @@
     const [k, dir] = txnSort.split('-');
     list.sort((a, b) => (k === 'amount' ? a.amount - b.amount : a.date.localeCompare(b.date)) * (dir === 'desc' ? -1 : 1));
     const shown = list.slice(0, txnLimit);
-    const colorOf = Object.fromEntries(cardOrder().map(c => [c, cardColor(c)]));
     const tot = list.reduce((s, t) => s + (t.type === 'debit' ? t.amount : -t.amount), 0);
+    const narrowed = !!(txnQuery || txnCat);
+    const multi = cardOrder().length > 1;
+    const rows = shown.map(t => `<tr>
+            <td class="tx-date num">${dateLabel(t.date)}${t.time ? `<span class="small muted">${t.time}</span>` : ''}</td>
+            <td class="tx-merch"><button class="mbtn${t.renamed ? ' edited' : ''}" data-id="${esc(t.id)}" title="${t.renamed ? `Changed from ${esc(t.origMerchant)}. Click to edit.` : 'Click to change the merchant'}">${esc(t.merchant)}${t.renamed ? Icon('pencil') : ''}</button>
+              <span class="tx-sub small muted" data-tip-trunc="${esc(t.description)}">${esc(t.description)}</span>
+              <span class="tx-meta"><span class="tag">${esc(t.category)}</span>${multi ? cardLabel(t.card) : ''}</span></td>
+            <td class="tx-cat"><span class="tag">${esc(t.category)}</span></td>
+            ${multi ? `<td class="tx-card small ink2">${cardLabel(t.card)}</td>` : ''}
+            <td class="r tx-amt${t.type === 'credit' ? ' ok' : ''}">${t.type === 'credit' ? '+' : ''}${fmtINR(t.amount, { decimals: true })}</td></tr>`).join('');
     el.innerHTML = `
       <div class="card">
         <div class="head">
-          <h2>All transactions</h2>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <input type="search" id="tq" placeholder="Search description or merchant" value="${esc(txnQuery)}" style="min-width:240px">
-            <select id="tc"><option value="">All categories</option>${cats.map(c => `<option ${c === txnCat ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
-            <select id="ts"><option value="date-desc">Newest first</option><option value="date-asc">Oldest first</option><option value="amount-desc">Largest first</option><option value="amount-asc">Smallest first</option></select>
+          <h2 class="with-info">Transactions${infoTip('Click a merchant to rename it or move the transaction to another merchant. Categories are changed on the Merchants tab.')}</h2>
+          <div class="tx-controls">
+            <input type="search" id="tq" placeholder="Search description or merchant" aria-label="Search description or merchant" value="${esc(txnQuery)}">
+            <select id="tc" aria-label="Category"><option value="">All categories</option>${cats.map(c => `<option ${c === txnCat ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+            <select id="ts" aria-label="Sort order"><option value="date-desc">Newest first</option><option value="date-asc">Oldest first</option><option value="amount-desc">Largest first</option><option value="amount-asc">Smallest first</option></select>
           </div>
         </div>
-        <p class="small muted" style="margin-bottom:8px">${list.length} transactions · net ${inr(tot)}${list.length > shown.length ? ` · showing ${shown.length}` : ''}. Click a merchant to rename it or move the transaction to another merchant. Categories are changed on the Merchants tab.</p>
-        <div class="table-wrap" style="max-height:640px"><table>
-          <thead><tr><th>Date</th><th>Description</th><th>Merchant</th><th>Category</th><th>Card</th><th class="r">Amount</th></tr></thead>
-          <tbody>${shown.map(t => `<tr><td class="num">${dateLabel(t.date)}${t.time ? `<div class="small muted">${t.time}</div>` : ''}</td><td class="small">${esc(t.description)}</td><td><button class="mbtn${t.renamed ? ' edited' : ''}" data-id="${esc(t.id)}" title="${t.renamed ? `Changed from ${esc(t.origMerchant)}. Click to edit.` : 'Click to change the merchant'}">${esc(t.merchant)}${t.renamed ? ' ✎' : ''}</button></td>
-            <td><span class="tag">${esc(t.category)}</span></td>
-            <td><i class="swatch" style="background:${colorOf[t.card]}" title="${esc(t.card)}"></i></td>
-            <td class="r ${t.type === 'credit' ? 'ok' : ''}">${t.type === 'credit' ? '+' : ''}${fmtINR(t.amount, { decimals: true })}</td></tr>`).join('')}</tbody>
-        </table></div>
-        ${list.length > shown.length ? `<div style="text-align:center;margin-top:12px"><button class="btn" id="txMore">Show ${Math.min(500, list.length - shown.length)} more</button></div>` : ''}
+        <p class="tx-summary small" aria-live="polite"><b>${list.length} transaction${list.length === 1 ? '' : 's'}</b> · net ${inr(tot)}${list.length > shown.length ? ` · showing the first ${shown.length}` : ''}</p>
+        ${list.length ? `<div class="table-wrap tx-wrap"><table class="tx-table">
+          <thead><tr><th>Date</th><th>Merchant</th><th class="tx-cat">Category</th>${multi ? '<th class="tx-card">Card</th>' : ''}<th class="r">Amount</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div>` : `<div class="tx-empty"><p>No transactions match${txnQuery ? ` “${esc(txnQuery)}”` : ''}${txnCat ? ` in ${esc(txnCat)}` : ''}.</p>${narrowed ? '<button class="btn" id="txReset">Clear search and category</button>' : ''}</div>`}
+        ${list.length > shown.length ? `<div class="tx-more"><button class="btn" id="txMore">Show ${Math.min(500, list.length - shown.length)} more</button></div>` : ''}
       </div>`;
     $('#ts').value = txnSort;
-    wireMerchantEdit(el.querySelector('tbody'), F);
+    if (list.length) wireMerchantEdit(el.querySelector('tbody'), F);
     if ($('#txMore')) $('#txMore').onclick = () => { txnLimit += 500; viewTransactions(filtered()); };
+    if ($('#txReset')) $('#txReset').onclick = () => { txnQuery = ''; txnCat = ''; txnLimit = 300; viewTransactions(filtered()); $('#tq').focus(); };
     let deb; $('#tq').oninput = e => { clearTimeout(deb); deb = setTimeout(() => { txnQuery = e.target.value; txnLimit = 300; viewTransactions(filtered()); const i = $('#tq'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }, 200); };
     $('#tc').onchange = e => { txnCat = e.target.value; viewTransactions(filtered()); };
     $('#ts').onchange = e => { txnSort = e.target.value; viewTransactions(filtered()); };
-
   }
 
   const KEEP_WORDS = new Set('date dates transaction transactions description details amount amounts total due minimum payment statement credit debit limit available cash balance opening closing previous purchases reward rewards points cr dr rs inr reference ref no merchant category domestic international emi interest finance charges charge fee fees gst igst cgst sgst tax card number name page of time pi upi'.split(' '));
@@ -1103,44 +1203,63 @@
     return rawCache.get(s.id);
   }
 
+  let parserProblemsOnly = false;
   function viewParser() {
     const el = $('#tab-parser');
     const sts = [...state.statements].sort((a, b) => a.card.localeCompare(b.card) || (a.meta.statementDate || '').localeCompare(b.meta.statementDate || ''));
+    const info = sts.map(s => {
+      const deb = s.txns.filter(t => t.type === 'debit').reduce((a, t) => a + t.amount, 0);
+      const cre = s.txns.filter(t => t.type === 'credit').reduce((a, t) => a + t.amount, 0);
+      const m = s.meta;
+      const diff = m.totalDue != null && m.openingBalance != null ? m.openingBalance + deb - cre - m.totalDue : null;
+      return { s, deb, cre, diff, ok: diff != null && Math.abs(diff) < 2, problem: (diff != null && Math.abs(diff) >= 2) || !s.txns.length };
+    });
+    const nProb = info.filter(x => x.problem).length, nOk = info.filter(x => x.ok).length;
+    if (!nProb) parserProblemsOnly = false;
+    const visible = info.map((x, i) => ({ ...x, i })).filter(x => !parserProblemsOnly || x.problem);
+    const groups = [...new Set(visible.map(x => x.s.card))].map(card => ({ card, items: visible.filter(x => x.s.card === card) }));
+    const check = x => x.diff == null ? '<span class="muted">Can’t tell</span>' : x.ok ? okMark('Yes') : `<span data-tip="Opening + debits − credits is ${inr(x.diff)} away from the total due">${badMark('Off by ' + inr(x.diff))}</span>`;
     el.innerHTML = `
       <div class="card">
-        <div class="head"><h2>Parser check</h2><span class="small muted">Check that each statement was read completely</span></div>
-        <p class="small ink2" style="margin-bottom:10px">Reconciliation: <i>opening balance + debits − credits</i> should equal the statement's <i>total due</i>. ✓ means every transaction was captured. ⚠ means some rows were missed or misread. Open the raw text to see which lines were picked up (highlighted). If a bank format isn't read correctly, use <b>Copy anonymised layout</b>. It swaps letters for x and digits for 9, so the structure can be shared to improve the parser without exposing your data.</p>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Card</th><th>File</th><th>Statement</th><th class="r">Txns</th><th class="r">Debits</th><th class="r">Credits</th><th class="r">Opening</th><th class="r">Total due</th><th>Reconciles</th><th></th></tr></thead>
-          <tbody>${sts.map((s, i) => {
-            const deb = s.txns.filter(t => t.type === 'debit').reduce((a, t) => a + t.amount, 0);
-            const cre = s.txns.filter(t => t.type === 'credit').reduce((a, t) => a + t.amount, 0);
-            const m = s.meta; let rec = '—';
-            if (m.totalDue != null && m.openingBalance != null) { const diff = m.openingBalance + deb - cre - m.totalDue; rec = Math.abs(diff) < 2 ? '<span class="ok">✓</span>' : `<span class="bad" title="Difference ${inr(diff)}">⚠ off by ${inr(diff)}</span>`; }
-            return `<tr><td class="small">${esc(s.card)}</td><td class="small">${esc(s.fileName)}</td><td>${dateLabel(m.statementDate)}</td><td class="r ${s.txns.length ? '' : 'bad'}">${s.txns.length}</td><td class="r">${inr(deb)}</td><td class="r">${inr(cre)}</td><td class="r">${inr(m.openingBalance)}</td><td class="r">${inr(m.totalDue)}</td><td>${rec}</td>
-              <td style="white-space:nowrap"><button class="btn" data-raw="${i}">${Icon('text')}Raw text</button> <button class="btn" data-anon="${i}">${Icon('copy')}Copy anonymised layout</button> <button class="btn ghost icon-only" data-del="${i}" title="Remove this statement" aria-label="Remove this statement">${Icon('x')}</button></td></tr>`;
-          }).join('')}</tbody>
+        <div class="head">
+          <h2 class="with-info">Statements${infoTip('Opening balance + debits − credits should equal the statement’s total due. If it does, every transaction was read. If not, some rows were missed or misread: open the raw text to see which lines were picked up.')}</h2>
+          ${nProb ? `<div class="seg-toggle" role="group" aria-label="Which statements to show"><button type="button" data-only="0" aria-pressed="${!parserProblemsOnly}">All ${sts.length}</button><button type="button" data-only="1" aria-pressed="${parserProblemsOnly}">Needs a look ${nProb}</button></div>` : ''}
+        </div>
+        <p class="tx-summary small"><b>${nOk} of ${sts.length}</b> statements reconcile${nProb ? ` · <span class="bad">${nProb} need${nProb === 1 ? 's' : ''} a look</span>` : ' · every statement was read completely'}</p>
+        <div class="table-wrap p-wrap"><table class="p-table">
+          <thead><tr><th>Statement</th><th class="r">Txns</th><th class="r p-num">Debits</th><th class="r p-num">Credits</th><th class="r p-num">Opening</th><th class="r p-num">Total due</th><th>Reconciles</th><th class="p-act"><span class="sr-only">Actions</span></th></tr></thead>
+          ${groups.map(g => `<tbody>
+            <tr class="p-group"><th colspan="8">${cardLabel(g.card)}<span class="small muted">${g.items.length} statement${g.items.length === 1 ? '' : 's'}</span></th></tr>
+            ${g.items.map(x => `<tr class="${x.problem ? 'p-bad' : ''}">
+              <td><span class="num">${dateLabel(x.s.meta.statementDate)}</span><span class="p-file small muted" data-tip-trunc="${esc(x.s.fileName)}">${esc(x.s.fileName)}</span></td>
+              <td class="r ${x.s.txns.length ? '' : 'bad'}">${x.s.txns.length}</td><td class="r p-num">${inr(x.deb)}</td><td class="r p-num">${inr(x.cre)}</td><td class="r p-num">${inr(x.s.meta.openingBalance)}</td><td class="r p-num">${inr(x.s.meta.totalDue)}</td>
+              <td class="p-check">${check(x)}</td>
+              <td class="p-act"><button class="btn ghost icon-only" data-raw="${x.i}" data-tip="Show raw text" aria-label="Show raw text of ${esc(x.s.fileName)}">${Icon('text')}</button><button class="btn ghost icon-only" data-anon="${x.i}" data-tip="Copy anonymised layout: letters become x and digits 9, so the structure can be shared to improve the parser" aria-label="Copy anonymised layout of ${esc(x.s.fileName)}">${Icon('copy')}</button><button class="btn ghost icon-only p-del" data-del="${x.i}" data-tip="Remove this statement" aria-label="Remove ${esc(x.s.fileName)}">${Icon('trash')}</button></td></tr>`).join('')}
+          </tbody>`).join('')}
         </table></div>
       </div>
-      <div class="card" id="rawBox" style="display:none"></div>`;
+      <div class="card" id="rawBox" hidden></div>`;
+    el.querySelectorAll('[data-only]').forEach(b => b.onclick = () => { parserProblemsOnly = b.dataset.only === '1'; viewParser(); });
     el.querySelectorAll('[data-raw]').forEach(b => b.onclick = async () => {
       const s = sts[+b.dataset.raw];
-      const box = $('#rawBox'); box.style.display = '';
+      const box = $('#rawBox'); box.hidden = false;
       box.innerHTML = '<p class="muted">Loading…</p>';
       const raw = await rawOf(s);
-      box.innerHTML = `<div class="head"><h3>${esc(s.fileName)}</h3><span class="small muted">${raw.rawLines.length} lines · highlighted = read as a transaction</span></div>
-        ${raw.rawLines.length ? `<pre class="raw">${raw.rawLines.map((l, j) => `<span class="${raw.lineFlags[j] ? 'hit' : ''}">${esc(l) || ' '}</span>`).join('')}</pre>` : '<p class="muted">No raw text was saved for this statement. Delete it here and import it again to see it.</p>'}`;
+      box.innerHTML = `<div class="head"><h2>${esc(s.fileName)}</h2><span class="sub">${raw.rawLines.length} lines · highlighted = read as a transaction</span><button type="button" class="btn ghost icon-only" id="rawClose" aria-label="Close raw text" data-tip="Close">${Icon('x')}</button></div>
+        ${raw.rawLines.length ? `<pre class="raw">${raw.rawLines.map((l, j) => `<span class="${raw.lineFlags[j] ? 'hit' : ''}">${esc(l) || ' '}</span>`).join('')}</pre>` : '<p class="muted">No raw text was saved for this statement. Remove it here and import it again to see it.</p>'}`;
+      $('#rawClose').onclick = () => { box.hidden = true; b.focus(); };
       box.scrollIntoView({ behavior: 'smooth' });
     });
     el.querySelectorAll('[data-anon]').forEach(b => b.onclick = async () => {
       const s = sts[+b.dataset.anon];
       const raw = await rawOf(s);
       const txt = `# ${s.card} (${raw.rawLines.length} lines, ${s.txns.length} parsed)\n` + anonymise(raw.rawLines.map((l, j) => (raw.lineFlags[j] ? '[T] ' : '    ') + l));
-      try { await navigator.clipboard.writeText(txt); b.textContent = 'Copied ✓'; } catch { const box = $('#rawBox'); box.style.display = ''; box.innerHTML = `<pre class="raw">${esc(txt)}</pre>`; }
+      try { await navigator.clipboard.writeText(txt); setProgress(`Copied the anonymised layout of ${s.fileName}.`); setTimeout(() => setProgress(''), 3000); }
+      catch { const box = $('#rawBox'); box.hidden = false; box.innerHTML = `<pre class="raw">${esc(txt)}</pre>`; }
     });
     el.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
       const s = sts[+b.dataset.del];
-      if (!confirm(`Delete ${s.fileName} from the database?${s.folderId ? '\nIt will show up as new on the next folder scan.' : ''}`)) return;
+      if (!confirm(`Remove ${s.fileName} from the database?${s.folderId ? '\nIt will show up as new on the next folder scan.' : ''}`)) return;
       try { await api('DELETE', `statements?id=${encodeURIComponent(s.id)}`); await reload(); state.pending = await api('GET', 'scan'); updateScanButton(); render(); } catch (e) { showError(e); }
     });
   }
