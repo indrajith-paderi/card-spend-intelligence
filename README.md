@@ -12,15 +12,17 @@ All screenshots use made up demo data.
 
 ## What it shows
 
-**Overview.** Total and monthly spend split by card, the categories that eat most of your money, and a short list of findings like late fees, interest, duplicate charges or spending that keeps creeping up.
+**Overview.** Total and monthly spend split by card, the categories that eat most of your money, and a short list of findings like late fees, interest, duplicate charges or spending that keeps creeping up. Each finding links to the tab with the details.
 
 **Spending.** A calendar of daily spending for the last year, then every category with its share, average ticket size and how it changed over the period. You can mark any category as essential or discretionary and the rest of the dashboard follows. Also spend by weekday, by day of the month (useful for spotting the post-salary splurge) and by hour, if your bank prints transaction times.
 
 ![Spending](docs/screenshots/spending.png)
 
-**Merchants.** Merchant names get cleaned up, so `SWIGGY BANGALORE`, `SWIGGY LIMITED` and friends all count as Swiggy. The list is ranked with ABC classes, so you can see the handful of places that take 80% of your money. If a merchant lands in the wrong category, click the category and pick another. Every transaction from that merchant follows, including future statements.
+**Merchants.** Merchant names get cleaned up, so `SWIGGY BANGALORE`, `SWIGGY LIMITED` and friends all count as Swiggy. The list is ranked with ABC classes, so you can see the handful of places that take 80% of your money. Click a merchant to see its transactions. If a merchant lands in the wrong category, click the category and pick another. Every transaction from that merchant follows, including future statements.
 
-**Cards.** A side by side comparison of your cards: spend, cashback, reward points, fees, interest and the net benefit of each card. It also tracks credit utilization per statement and checks whether every bill was paid in full.
+![Merchants](docs/screenshots/merchants.png)
+
+**Cards.** Each card's latest bill, due date, credit limit and whether bills were paid in full, then a side by side comparison: spend, rewards, fees and interest, and the net benefit of each card. It also tracks credit utilization per statement.
 
 ![Cards](docs/screenshots/cards.png)
 
@@ -80,7 +82,7 @@ Next month, save the new PDF into the same folder and click **Scan folders**. On
 
 Every bank lays out its statements a little differently, so the **Parser check** tab exists to keep things honest. For each statement it takes the opening balance, adds the debits it found, subtracts the credits and compares the result with the total due printed on the statement. A tick means every transaction was picked up.
 
-If you see a warning, click **Raw text** to see exactly which lines were read as transactions. **Copy anonymised layout** copies the statement's structure with every letter replaced by `x` and every digit by `9`. That's enough to fix the parser for a new bank layout without sharing any real data, so feel free to attach it to an issue.
+If a statement is off, **Needs a look** lists just those. The page icon on a row shows the raw text, with the lines read as transactions highlighted. The copy icon copies the statement's structure with every letter replaced by `x` and every digit by `9`. That's enough to fix the parser for a new bank layout without sharing any real data, so feel free to attach it to an issue.
 
 ![Parser check](docs/screenshots/parser.png)
 
@@ -93,7 +95,7 @@ This was the main reason to build it instead of uploading statements to some web
 * PDFs are decrypted with pdf.js inside your browser tab. The password goes from the dialog straight to pdf.js and is dropped once the file is read.
 * The local server only listens on `127.0.0.1`, so other devices on your network can't reach it. It rejects requests coming from other websites and will only read PDFs inside folders you added.
 * The page has a Content Security Policy that blocks it from talking to anything except the local server. pdf.js and Chart.js are bundled in `app/vendor`, so no CDN is involved either.
-* Transactions are stored in `data/cards.db`. That file is not encrypted, so it's as safe as your user account and disk. **Clear data** then **Delete everything** wipes it in one go, including the list of folders, and rewrites the file so the deleted data can't be read back from it.
+* Transactions are stored in `data/cards.db`. That file is not encrypted, so it's as safe as your user account and disk. **Clear data** in the ⋯ menu, then **Delete everything**, wipes it in one go, including the list of folders, and rewrites the file so the deleted data can't be read back from it.
 * `.gitignore` keeps PDFs, CSV exports, the database and your statement folders out of git, in case you fork this and keep your statements next to it.
 
 ## Options
