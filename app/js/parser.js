@@ -125,7 +125,7 @@
 
     // Split the remainder into columns (2+ spaces = column gap).
     let b = before
-      .replace(/[+\-]?\s*(₹|Rs\.?|INR|`)\s*$/i, '')
+      .replace(/[+\-]?\s*(₹|\bRs\.?|\bINR|`)\s*$/i, '') // \b: don't eat the end of GROFERS, TRADERS…
       .replace(/\+\s*C\s*$/, '')
       .replace(/(\s)C\s*$/, '$1') // rupee glyph that some fonts extract as "C"
       .replace(/\s*\+\s*$/, '');
