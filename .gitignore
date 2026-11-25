@@ -24,3 +24,6 @@ __pycache__/
 .claude/
 .DS_Store
 Thumbs.db
+
+# The README demo video is the one video that belongs in the repo
+!/docs/demo.mp4

@@ -1,5 +1,9 @@
 # Card Spend Intelligence
 
+[![Card Spend Intelligence: every credit card, one private dashboard](docs/thumbnail.png)](docs/demo.mp4)
+
+▶ **[Watch the 80 second demo](docs/demo.mp4)**: adding a statement folder, unlocking each card's PDFs and exploring the dashboard.
+
 I had a year of credit card statements from three different cards sitting in a folder, all of them password protected PDFs, and no easy way to see where the money was actually going. Bank apps show one card at a time and mostly just list transactions. So I built this.
 
 It's a small dashboard that runs on your own computer. You point it at the folder where you keep your statements, type each card's PDF password once, and it pulls every transaction into one place: monthly spend, categories, merchants, fees you didn't need to pay, subscriptions you forgot about, and how much you could save.
@@ -8,7 +12,7 @@ Nothing leaves your machine. The PDFs are unlocked inside your browser tab, pass
 
 ![Overview](docs/screenshots/overview.png)
 
-All screenshots use made up demo data.
+All screenshots and the demo video use made up demo data.
 
 ## What it shows
 
